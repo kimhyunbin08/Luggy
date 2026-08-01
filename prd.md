@@ -123,28 +123,11 @@
 - Q20. 출시 게이트용 건당 공헌이익 최소 기준은?
 - A20. 5,000원 이상
 
-## 14. Azure 클라우드 배포 반영
-### 14.1 목표 아키텍처 매핑
-1. **Frontend(Web/App):** Azure Static Web Apps
-2. **API/Worker:** Azure Container Apps (API, dispatch/settlement/overdue/profitability 워커 분리 배포)
-3. **Database:** Azure Database for PostgreSQL Flexible Server
-4. **Object Storage(검수 사진):** Azure Blob Storage
-5. **Queue/Event:** Azure Service Bus Queue
-6. **Cache(선택):** Azure Cache for Redis
-7. **Secrets:** Azure Key Vault
-8. **Observability:** Azure Monitor + Application Insights + Log Analytics
-9. **CI/CD:** GitHub Actions + Azure OIDC 로그인(비밀키 없는 배포)
-
-### 14.2 운영/보안 반영
-1. API/DB/Storage는 Private Endpoint + VNet 통합을 기본값으로 한다.
-2. 결제/배송 파트너 웹훅 엔드포인트는 WAF(Front Door/App Gateway) 뒤에 배치한다.
-3. 결제토큰/개인정보 암호화 키는 Key Vault 관리형 키를 사용한다.
-4. 스테이징/프로덕션 분리 및 정책 버전(`policy_versions`)은 환경별 독립 운영한다.
-
-### 14.3 비용/성능 가드레일
-1. 초기 MVP는 단일 리전(한국 중부 또는 인접 리전)으로 시작한다.
-2. 워커는 이벤트량 기준 수평 확장(auto scale)하되, 상한을 둬 비용 폭주를 방지한다.
-3. 저장소 수명주기 정책으로 검수 원본 이미지를 저비용 계층으로 자동 이동한다.
+## 14. 클라우드 운영 반영 (제품 관점)
+1. 본 서비스는 Azure 클라우드 배포를 전제로 한다.
+2. Web MVP는 스테이징/프로덕션 환경을 분리해 운영한다.
+3. 결제/개인정보/검수 증빙 데이터는 보안 및 감사 추적이 가능한 방식으로 운영한다.
+4. 세부 인프라 구성(데이터베이스, 큐, 스토리지, 네트워크, 모니터링)은 `trd.md`와 `architecture.md`를 단일 기준으로 따른다.
 
 ## 15. PRD 검증 결과 (Ideation/Architecture 반영)
 ### 15.1 판정
@@ -169,11 +152,11 @@
 7. Azure 스테이징 환경에서 핵심 API가 정상 응답하고 로그가 수집된다.
 
 ### 16.2 Web MVP 비기능 인수조건
-1. 정책(`pricing/refund/liability`) 변경은 코드 배포 없이 `policy_versions`로 반영 가능하다.
-2. 모든 금전 이벤트(결제/환불/정산/추가청구)는 ledger와 event 로그에 추적 가능하다.
+1. 정책(가격/환불/책임) 변경은 서비스 중단 없이 반영 가능해야 한다.
+2. 결제/환불/정산/추가청구 이력은 감사 가능한 형태로 추적 가능해야 한다.
 3. 검색→예약 전환율, Provider Opt-in 비율이 대시보드에서 조회 가능하다.
 4. Azure 배포 기준으로 스테이징/프로덕션 환경 분리가 완료되어야 한다.
-5. 핵심 에러율/지연 지표가 Azure Monitor에서 확인 가능해야 한다.
+5. 핵심 에러율/지연 지표가 운영 대시보드에서 확인 가능해야 한다.
 
 ### 16.3 2차 운영 고도화 인수조건 (Deferred)
 1. 실거래 20건 기준 기내용/중형 모두 건당 공헌이익 5,000원 이상.
@@ -190,11 +173,11 @@
 6. 상태 전이 검증기: 허용되지 않은 상태 점프 차단
 
 ### 17.2 Web MVP 통합 테스트 (Integration)
-1. 예약 생성→결제→확정→배송주문 생성까지 API+DB+Queue 연계 검증
+1. 예약 생성→결제→확정→배송주문 생성까지 핵심 플로우 연계 검증
 2. 배송 이벤트 수신→예약 상태 반영(이동중/도착/지연) 연계 검증
 3. 취소 요청 시 환불 정책 계산과 결제 반영 검증
 4. 정책 버전 변경 후 신규 예약만 새 정책 적용, 기존 예약은 구 정책 유지 검증
-5. ledger/event_logs와 payments/settlements 정합성 검증
+5. 결제/환불/정산 이력 정합성 검증
 
 ### 17.3 Web MVP E2E 테스트
 1. **정상 대여 시나리오:** 검색→예약→결제→배송→사용→반납→검수→정산 완료
