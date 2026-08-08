@@ -1,8 +1,9 @@
-# TRD: Luggy Web MVP (v0.1)
+# TRD: Luggy Web MVP (v0.2)
 
 ## 1. 문서 목적
-- `ideation.md`, `prd.md`, `architecture.md`를 구현 가능한 기술 요구사항으로 고정한다.
+- `ideation.md`, `prd.md`를 구현 가능한 기술 요구사항으로 고정한다.
 - Web MVP 개발/배포/테스트의 공통 기준을 정의한다.
+- 기존 `architecture.md`의 시스템 구조/상태 전이/데이터/API/워커 내용을 본 문서에 통합한다.
 
 ## 2. 범위
 ### 2.1 In Scope (Web MVP 1차)
@@ -190,4 +191,4 @@
 ## 15. 검증 결과 (3모델 반영)
 1. Provider 기능/엔티티/API 누락 보완 완료
 2. ledger/cost/claim/worker/상태머신 요구사항 반영 완료
-3. PRD/Architecture 불일치 항목(정산·검수·정책·KPI) 동기화 완료
+3. PRD/TRD 불일치 항목(정산·검수·정책·KPI) 동기화 완료

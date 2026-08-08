@@ -1,14 +1,13 @@
 # AGENTS.md
 
 ## 1) 목표
-이 저장소의 구현 범위는 `prd.md`, `architecture.md`, `trd.md`, `ideation.md`에 정의된 **Web MVP 1차**로 제한한다.  
+이 저장소의 구현 범위는 `prd.md`, `trd.md`, `ideation.md`에 정의된 **Web MVP 1차**로 제한한다.  
 추가 기능 제안보다 문서 정합성과 MVP 완성도를 우선한다.
 
 ## 2) 문서 우선순위 (충돌 시)
 1. `prd.md` (제품 정책/인수조건)
 2. `trd.md` (구현 요구사항/API/테스트)
-3. `architecture.md` (시스템 구조/상태 전이/데이터)
-4. `ideation.md` (검증 배경/가설)
+3. `ideation.md` (검증 배경/가설)
 
 충돌 발견 시 임의 구현하지 말고 문서 정합화부터 수행한다.
 
@@ -40,7 +39,7 @@
 - 예약은 policy_version 스냅샷 불변
 - 클레임 미해결 상태에서는 정산 금지
 - 재고 희소성은 기간+사이즈 기준 가용 수량으로 계산
-- 상태 전이는 `architecture.md`/`trd.md` 정의를 따른다
+- 상태 전이는 `trd.md` 정의를 따른다
 
 ## 7) API 최소 세트 (MVP)
 - `GET /renters/search`
@@ -69,4 +68,4 @@
 ## 9) 작업 규칙
 - 문서 범위를 벗어난 기능은 구현하지 않는다.
 - Deferred 항목은 TODO/플래그로만 남기고 동작 경로에 강제하지 않는다.
-- 변경 시 관련 문서(`prd.md`/`trd.md`/`architecture.md`) 동시 업데이트를 원칙으로 한다.
+- 변경 시 관련 문서(`prd.md`/`trd.md`) 동시 업데이트를 원칙으로 한다.
