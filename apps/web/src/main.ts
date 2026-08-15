@@ -3,100 +3,52 @@ import "./styles.css";
 type Size = "carry_on" | "medium";
 type Tab = "rent" | "provider";
 type Step = 1 | 2 | 3;
-type DeliveryStatus = "접수" | "이동중" | "도착" | "지연";
 
 type Carrier = {
   id: string;
-  brand: string;
-  model: string;
   size: Size;
-  rating: number;
-  reviews: number;
-  inspected: boolean;
-  originalPrice: number;
-  etaLabel: string;
-  stock: number;
-  image: string;
+  brandModel: string;
+  totalPrice: number;
+  eta: string;
+  remainingQuantity: number;
+  provider: {
+    id: string;
+    rating: number;
+    reviews: number;
+  };
 };
 
-const POLICY = {
-  minDays: 2,
-  roundTripDelivery: 14000,
-  dailyPrice: {
-    carry_on: 7900,
-    medium: 11900
-  } as Record<Size, number>,
-  deposit: {
-    carry_on: 30000,
-    medium: 50000
-  } as Record<Size, number>
+type BookingRequest = {
+  renterId: string;
+  carrierId: string;
+  startDate: string;
+  endDate: string;
+  idempotencyKey?: string;
 };
+
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+const MOCK_RENTER_ID = "550e8400-e29b-41d4-a716-446655440000"; // Mock UUID
+const MOCK_PROVIDER_ID = "550e8400-e29b-41d4-a716-446655440001"; // Mock UUID
 
 // Session ID for analytics
 const sessionId = `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
 // Funnel event tracker
-async function logFunnelEvent(event: string, metadata?: Record<string, any>) {
+async function logFunnelEvent(eventType: string, metadata?: Record<string, any>) {
   try {
-    await fetch('http://localhost:3001/funnel/events', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    await fetch(`${API_URL}/funnel/events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        event,
+        eventType,
         sessionId,
-        timestamp: new Date().toISOString(),
-        metadata: metadata || {}
-      })
+        metadata: metadata || {},
+      }),
     });
   } catch (err) {
-    console.error('[Analytics] Failed to log event:', event, err);
+    console.error("[Analytics] Failed to log event:", eventType, err);
   }
 }
-
-const carriers: Carrier[] = [
-  {
-    id: "c-1",
-    brand: "Samsonite",
-    model: "C-Lite",
-    size: "carry_on",
-    rating: 4.9,
-    reviews: 312,
-    inspected: true,
-    originalPrice: 129000,
-    etaLabel: "내일 도착",
-    stock: 4,
-    image:
-      "https://images.unsplash.com/photo-1581553680321-4fffae59fccd?auto=format&fit=crop&w=1200&q=80"
-  },
-  {
-    id: "c-2",
-    brand: "RIMOWA",
-    model: "Essential Cabin",
-    size: "carry_on",
-    rating: 4.8,
-    reviews: 186,
-    inspected: true,
-    originalPrice: 149000,
-    etaLabel: "오늘 출고",
-    stock: 2,
-    image:
-      "https://images.unsplash.com/photo-1565026057447-bc90a3dceb87?auto=format&fit=crop&w=1200&q=80"
-  },
-  {
-    id: "c-3",
-    brand: "American Tourister",
-    model: "Soundbox M",
-    size: "medium",
-    rating: 4.7,
-    reviews: 141,
-    inspected: true,
-    originalPrice: 169000,
-    etaLabel: "모레 도착",
-    stock: 3,
-    image:
-      "https://images.unsplash.com/photo-1506629905607-55b2f0b4e4f4?auto=format&fit=crop&w=1200&q=80"
-  }
-];
 
 const state = {
   tab: "rent" as Tab,
@@ -104,11 +56,21 @@ const state = {
   startDate: futureDate(7),
   endDate: futureDate(9),
   size: "carry_on" as Size,
-  location: "서울 강남구",
+  searchResults: [] as Carrier[],
   selectedCarrierId: "" as string,
   customerName: "",
   customerPhone: "",
-  deliveryStatus: "접수" as DeliveryStatus
+  loading: false,
+  error: "",
+  bookingId: "",
+  // Provider state
+  providerSize: "carry_on" as Size,
+  providerBrand: "",
+  providerModel: "",
+  providerBasePrice: 0,
+  providerPhotoUrl: "",
+  providerOptIn: true,
+  providerCarriers: [] as any[],
 };
 
 function futureDate(offset: number): string {
@@ -128,33 +90,186 @@ function currency(value: number): string {
 }
 
 function totalPrice(size: Size, days: number): number {
-  const validDays = Math.max(0, days);
-  return POLICY.dailyPrice[size] * validDays + POLICY.roundTripDelivery;
+  const rates = { carry_on: 7900, medium: 11900 };
+  return rates[size] * days + 14000;
 }
 
-function refundAmount(checkInDate: string, amount: number): number {
-  const now = new Date();
-  const checkIn = new Date(checkInDate);
-  const diffHours = (checkIn.getTime() - now.getTime()) / (1000 * 60 * 60);
-  if (diffHours >= 48) return amount;
-  if (diffHours >= 24) return Math.floor(amount * 0.5);
-  return 0;
+async function searchCarriers() {
+  state.loading = true;
+  state.error = "";
+  state.searchResults = [];
+
+  try {
+    const url = new URL(`${API_URL}/renters/search`);
+    url.searchParams.append("size", state.size);
+    url.searchParams.append("start_date", state.startDate);
+    url.searchParams.append("end_date", state.endDate);
+
+    const res = await fetch(url.toString());
+    if (!res.ok) throw new Error("Search failed");
+
+    const data = await res.json();
+    state.searchResults = data.items || [];
+
+    // Log search + result view
+    const rentalDays = daysBetween(state.startDate, state.endDate);
+    logFunnelEvent("search_submit", {
+      size: state.size,
+      days: rentalDays,
+      resultCount: state.searchResults.length,
+    });
+    logFunnelEvent("result_view", {
+      size: state.size,
+      itemCount: state.searchResults.length,
+    });
+  } catch (err) {
+    state.error = `검색 실패: ${err instanceof Error ? err.message : String(err)}`;
+    console.error("[Search] Error:", err);
+  } finally {
+    state.loading = false;
+  }
 }
 
-function recommended(size: Size, days: number) {
-  return carriers
-    .filter((carrier) => carrier.size === size)
-    .map((carrier) => {
-      const total = totalPrice(size, days);
-      const score = carrier.rating * 100 + carrier.reviews * 0.25 + (carrier.stock <= 2 ? 16 : 8);
-      return { ...carrier, total, score };
-    })
-    .sort((a, b) => b.score - a.score);
+async function createBooking() {
+  if (!state.selectedCarrierId || state.loading) return;
+
+  state.loading = true;
+  state.error = "";
+  state.bookingId = "";
+
+  try {
+    const rentalDays = daysBetween(state.startDate, state.endDate);
+    const idempotencyKey = `booking_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+    const req: BookingRequest = {
+      renterId: MOCK_RENTER_ID,
+      carrierId: state.selectedCarrierId,
+      startDate: state.startDate,
+      endDate: state.endDate,
+      idempotencyKey,
+    };
+
+    const res = await fetch(`${API_URL}/bookings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    });
+
+    if (!res.ok) throw new Error("Booking failed");
+
+    const booking = await res.json();
+    state.bookingId = booking.id;
+
+    // Log checkout steps
+    logFunnelEvent("checkout_step1", { step: 1 });
+    logFunnelEvent("checkout_step2", { step: 2 });
+    logFunnelEvent("checkout_step3", { step: 3 });
+    logFunnelEvent("paid", {
+      bookingId: booking.id,
+      total: booking.totalPrice,
+      carrierId: state.selectedCarrierId,
+      days: rentalDays,
+    });
+
+    state.step = 3;
+  } catch (err) {
+    state.error = `예약 실패: ${err instanceof Error ? err.message : String(err)}`;
+    console.error("[Booking] Error:", err);
+  } finally {
+    state.loading = false;
+  }
 }
 
-function currentSelection(days: number) {
-  const items = recommended(state.size, days);
-  return items.find((item) => item.id === state.selectedCarrierId) ?? null;
+async function authorizePayment() {
+  if (!state.bookingId) return;
+
+  state.loading = true;
+  state.error = "";
+
+  try {
+    const res = await fetch(`${API_URL}/bookings/${state.bookingId}/authorize-payment`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    if (!res.ok) throw new Error("Payment authorization failed");
+
+    // Show success message
+    render();
+  } catch (err) {
+    state.error = `결제 승인 실패: ${err instanceof Error ? err.message : String(err)}`;
+    console.error("[Payment] Error:", err);
+  } finally {
+    state.loading = false;
+  }
+}
+
+async function registerCarrier() {
+  if (!state.providerBrand || !state.providerModel || state.providerBasePrice <= 0) {
+    state.error = "모든 필드를 입력해주세요.";
+    return;
+  }
+
+  state.loading = true;
+  state.error = "";
+
+  try {
+    const req = {
+      providerId: MOCK_PROVIDER_ID,
+      size: state.providerSize,
+      brandModel: `${state.providerBrand} ${state.providerModel}`,
+      basePrice: state.providerBasePrice,
+      intakePhotoUrl: state.providerPhotoUrl || "https://via.placeholder.com/300",
+    };
+
+    const res = await fetch(`${API_URL}/providers/carriers`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    });
+
+    if (!res.ok) throw new Error("Carrier registration failed");
+
+    const carrier = await res.json();
+
+    // Opt-in if checked
+    if (state.providerOptIn) {
+      const optInRes = await fetch(`${API_URL}/providers/carriers/${carrier.id}/opt-in`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      if (!optInRes.ok) throw new Error("Opt-in failed");
+    }
+
+    // Reset form
+    state.providerBrand = "";
+    state.providerModel = "";
+    state.providerBasePrice = 0;
+    state.providerPhotoUrl = "";
+    state.error = "";
+
+    // Reload carriers list
+    await fetchProviderCarriers();
+  } catch (err) {
+    state.error = `등록 실패: ${err instanceof Error ? err.message : String(err)}`;
+    console.error("[Provider] Error:", err);
+  } finally {
+    state.loading = false;
+  }
+}
+
+async function fetchProviderCarriers() {
+  try {
+    const res = await fetch(`${API_URL}/providers/${MOCK_PROVIDER_ID}/carriers`);
+    if (res.ok) {
+      const data = await res.json();
+      state.providerCarriers = data.carriers || [];
+    }
+  } catch (err) {
+    console.error("[Provider] Failed to fetch carriers:", err);
+  }
 }
 
 function render() {
@@ -162,33 +277,11 @@ function render() {
   if (!app) throw new Error("missing app root");
 
   const rentalDays = daysBetween(state.startDate, state.endDate);
-  const items = recommended(state.size, rentalDays);
-  const selected = currentSelection(rentalDays);
-  const canSearch = rentalDays >= POLICY.minDays && state.location.trim().length > 0;
-  const canStep2 = !!selected && selected.stock > 0 && rentalDays >= POLICY.minDays;
-  const canStep3 = canStep2 && state.customerName.trim().length > 1 && state.customerPhone.trim().length > 7;
-
-  // Log funnel events
-  if (state.tab === "rent" && items.length > 0 && !sessionStorage.getItem(`_luggy_result_view`)) {
-    sessionStorage.setItem(`_luggy_result_view`, "1");
-    logFunnelEvent('result_view', { size: state.size, itemCount: items.length });
-  }
-  if (selected && !sessionStorage.getItem(`_luggy_detail_view_${selected.id}`)) {
-    sessionStorage.setItem(`_luggy_detail_view_${selected.id}`, "1");
-    logFunnelEvent('detail_view', { carrierId: selected.id, brand: selected.brand });
-  }
-  if (state.step === 1 && selected && !sessionStorage.getItem(`_luggy_checkout_step1`)) {
-    sessionStorage.setItem(`_luggy_checkout_step1`, "1");
-    logFunnelEvent('checkout_step1', { step: 1 });
-  }
-  if (state.step === 2 && !sessionStorage.getItem(`_luggy_checkout_step2`)) {
-    sessionStorage.setItem(`_luggy_checkout_step2`, "1");
-    logFunnelEvent('checkout_step2', { step: 2 });
-  }
-  if (state.step === 3 && !sessionStorage.getItem(`_luggy_checkout_step3`)) {
-    sessionStorage.setItem(`_luggy_checkout_step3`, "1");
-    logFunnelEvent('checkout_step3', { step: 3 });
-  }
+  const selected = state.searchResults.find((c) => c.id === state.selectedCarrierId);
+  const minDays = 2;
+  const canSearch = rentalDays >= minDays;
+  const canStep2 = !!selected && rentalDays >= minDays;
+  const canStep3 = canStep2 && state.customerName.trim().length > 1 && state.customerPhone.length > 7;
 
   app.innerHTML = `
     <main class="page">
@@ -197,14 +290,12 @@ function render() {
         <nav class="menu">
           <button data-tab="rent" class="nav-btn ${state.tab === "rent" ? "active" : ""}">렌탈</button>
           <button data-tab="provider" class="nav-btn ${state.tab === "provider" ? "active" : ""}">맡기기</button>
-          <button class="nav-btn ghost">내 예약</button>
-          <button class="nav-btn ghost">정책</button>
         </nav>
       </header>
 
       <section class="hero">
-        <h1>Agoda/Hotels 스타일로 캐리어를 즉시 검색하고 3단계로 결제하세요</h1>
-        <p>검색 → 상세 선택 → 결제(옵션선택/정보입력/결제)까지 동적 퍼널로 동작합니다.</p>
+        <h1>캐리어 즉시 검색하고 3단계로 결제하세요</h1>
+        <p>실제 재고와 연결된 예약 시스템입니다.</p>
 
         <div class="search-grid">
           <label>대여 시작일<input id="startDate" type="date" value="${state.startDate}" /></label>
@@ -215,10 +306,12 @@ function render() {
               <option value="medium" ${state.size === "medium" ? "selected" : ""}>중형</option>
             </select>
           </label>
-          <label>수령지<input id="location" type="text" value="${state.location}" /></label>
-          <button id="searchBtn" class="cta" ${canSearch ? "" : "disabled"}>즉시 조회</button>
+          <button id="searchBtn" class="cta" ${canSearch ? "" : "disabled"} ${state.loading ? "disabled" : ""}>
+            ${state.loading ? "검색 중..." : "즉시 조회"}
+          </button>
         </div>
-        ${rentalDays < POLICY.minDays ? '<p class="warn">최소 대여기간은 2일입니다.</p>' : ""}
+        ${rentalDays < minDays ? '<p class="warn">최소 대여기간은 2일입니다.</p>' : ""}
+        ${state.error ? `<p class="error">${state.error}</p>` : ""}
       </section>
 
       ${
@@ -227,43 +320,40 @@ function render() {
       <section class="layout">
         <section class="results">
           <div class="section-head">
-            <h2>추천순 결과</h2>
-            <span>${items.length}개</span>
+            <h2>렌탈 가능한 캐리어</h2>
+            <span>${state.searchResults.length}개</span>
           </div>
           <div class="cards">
-            ${items
-              .map(
-                (item) => `
+            ${
+              state.searchResults.length === 0 && !state.loading
+                ? '<p class="empty">검색하여 결과를 확인하세요.</p>'
+                : state.searchResults
+                    .map(
+                      (item) => `
               <article class="card ${state.selectedCarrierId === item.id ? "selected" : ""}" data-select="${item.id}">
-                <img src="${item.image}" alt="${item.brand} ${item.model}" />
                 <div class="content">
-                  <div class="row between">
-                    <strong>${item.brand} ${item.model}</strong>
-                    <span class="badge">${item.inspected ? "검수완료" : "검수대기"}</span>
-                  </div>
+                  <strong>${item.brandModel}</strong>
                   <div class="row meta">
-                    <span>⭐ ${item.rating}</span>
-                    <span>리뷰 ${item.reviews}</span>
-                    <span>남은 수량 ${item.stock}개</span>
-                    <span>${item.etaLabel}</span>
+                    <span>⭐ ${item.provider.rating}</span>
+                    <span>리뷰 ${item.provider.reviews}</span>
+                    <span>남은 수량 ${item.remainingQuantity}개</span>
                   </div>
                   <div class="row between">
-                    <del>${currency(item.originalPrice)}</del>
-                    <strong class="total">${currency(item.total)}</strong>
+                    <strong class="total">${currency(item.totalPrice)}</strong>
                   </div>
-                  <p class="scarcity">${item.stock <= 2 ? "마감 임박" : "재고 여유"}</p>
                 </div>
               </article>
             `
-              )
-              .join("")}
+                    )
+                    .join("")
+            }
           </div>
         </section>
 
         <aside class="checkout">
           <h3>3단계 결제</h3>
           <div class="steps">
-            <button data-step="1" class="step ${state.step === 1 ? "active" : ""}">1. 옵션선택</button>
+            <button data-step="1" class="step ${state.step === 1 ? "active" : ""}">1. 상품선택</button>
             <button data-step="2" class="step ${state.step === 2 ? "active" : ""}" ${canStep2 ? "" : "disabled"}>2. 정보입력</button>
             <button data-step="3" class="step ${state.step === 3 ? "active" : ""}" ${canStep3 ? "" : "disabled"}>3. 결제</button>
           </div>
@@ -272,11 +362,10 @@ function render() {
             state.step === 1
               ? `
             <div class="panel">
-              <p>선택 상품: <strong>${selected ? `${selected.brand} ${selected.model}` : "미선택"}</strong></p>
-              <p>대여기간: <strong>${rentalDays}일</strong></p>
-              <p>왕복배송비: <strong>${currency(POLICY.roundTripDelivery)}</strong></p>
-              <p>총결제액: <strong>${selected ? currency(selected.total) : "-"}</strong></p>
-              <button id="toStep2" class="cta" ${canStep2 ? "" : "disabled"}>다음 단계</button>
+              <p>선택: <strong>${selected ? selected.brandModel : "미선택"}</strong></p>
+              <p>기간: <strong>${rentalDays}일</strong></p>
+              <p>가격: <strong>${selected ? currency(selected.totalPrice) : "-"}</strong></p>
+              <button id="toStep2" class="cta" ${canStep2 ? "" : "disabled"}>다음</button>
             </div>
           `
               : ""
@@ -288,7 +377,7 @@ function render() {
             <div class="panel">
               <label>예약자명<input id="customerName" value="${state.customerName}" /></label>
               <label>연락처<input id="customerPhone" value="${state.customerPhone}" placeholder="010-0000-0000" /></label>
-              <button id="toStep3" class="cta" ${canStep3 ? "" : "disabled"}>결제 단계로</button>
+              <button id="toStep3" class="cta" ${canStep3 ? "" : "disabled"}>결제</button>
             </div>
           `
               : ""
@@ -298,35 +387,70 @@ function render() {
             state.step === 3
               ? `
             <div class="panel">
-              <p>보증금: <strong>${selected ? currency(POLICY.deposit[selected.size]) : "-"}</strong></p>
-              <p>배송상태:
-                <select id="deliveryStatus">
-                  <option ${state.deliveryStatus === "접수" ? "selected" : ""}>접수</option>
-                  <option ${state.deliveryStatus === "이동중" ? "selected" : ""}>이동중</option>
-                  <option ${state.deliveryStatus === "도착" ? "selected" : ""}>도착</option>
-                  <option ${state.deliveryStatus === "지연" ? "selected" : ""}>지연</option>
-                </select>
-              </p>
-              <button id="payNow" class="cta" ${canStep3 ? "" : "disabled"}>결제 승인</button>
+              ${
+                state.bookingId
+                  ? `
+                <div class="success">
+                  <h4>✓ 예약 완료</h4>
+                  <p>예약번호: <strong>${state.bookingId}</strong></p>
+                  <p>총결제액: <strong>${selected ? currency(selected.totalPrice) : "-"}</strong></p>
+                  <button id="payAuthorize" class="cta">결제 승인</button>
+                </div>
+              `
+                  : `
+                <button id="bookingBtn" class="cta" ${canStep3 && !state.loading ? "" : "disabled"}>
+                  ${state.loading ? "예약 중..." : "예약 생성"}
+                </button>
+              `
+              }
             </div>
           `
               : ""
           }
-
-          <div id="bookingResult"></div>
         </aside>
       </section>
       `
           : `
-      <section class="provider">
-        <h2>Provider 등록/입고/Opt-in</h2>
-        <p>입고 신청 → 검수 사진 업로드 → 렌탈 Opt-in으로 진행됩니다.</p>
-        <div class="provider-grid">
-          <label>캐리어 사이즈<select><option>기내용</option><option>중형</option></select></label>
-          <label>브랜드/모델<input placeholder="예: Samsonite C-Lite" /></label>
-          <label>희망 입고일<input type="date" value="${futureDate(3)}" /></label>
-          <label class="check"><input type="checkbox" checked /> 렌탈 허용 Opt-in 동의</label>
-          <button class="cta">입고 신청</button>
+      <section class="provider-section">
+        <h2>캐리어 등록 / 입고</h2>
+        <p>사진 업로드 후 렌탈 허용으로 전환하면 Renter가 예약할 수 있습니다.</p>
+        
+        ${state.error ? `<p class="error">${state.error}</p>` : ""}
+
+        <div class="provider-form">
+          <label>사이즈
+            <select id="providerSize">
+              <option value="carry_on" ${state.providerSize === "carry_on" ? "selected" : ""}>기내용</option>
+              <option value="medium" ${state.providerSize === "medium" ? "selected" : ""}>중형</option>
+            </select>
+          </label>
+          <label>브랜드<input id="providerBrand" value="${state.providerBrand}" placeholder="Samsonite" /></label>
+          <label>모델<input id="providerModel" value="${state.providerModel}" placeholder="C-Lite" /></label>
+          <label>기준가(원)<input id="providerPrice" type="number" value="${state.providerBasePrice || ""}" placeholder="100000" /></label>
+          <label>사진 URL<input id="providerPhoto" value="${state.providerPhotoUrl}" placeholder="https://..." /></label>
+          <label><input type="checkbox" id="providerOptIn" ${state.providerOptIn ? "checked" : ""} /> 렌탈 허용 동의</label>
+          <button id="registerBtn" class="cta" ${state.loading ? "disabled" : ""}>
+            ${state.loading ? "등록 중..." : "등록 및 Opt-in"}
+          </button>
+        </div>
+
+        <div class="provider-list">
+          <h3>내 캐리어</h3>
+          ${
+            state.providerCarriers.length === 0
+              ? '<p>등록된 캐리어가 없습니다.</p>'
+              : state.providerCarriers
+                  .map(
+                    (c) => `
+            <div class="carrier-item">
+              <strong>${c.brandModel}</strong> (${c.size})
+              <span class="status ${c.status}">${c.status}</span>
+              <span class="optIn ${c.optInRentable ? "active" : ""}">렌탈: ${c.optInRentable ? "허용" : "미허용"}</span>
+            </div>
+          `
+                  )
+                  .join("")
+          }
         </div>
       </section>
       `
@@ -337,101 +461,109 @@ function render() {
   bindEvents();
 }
 
-function showResult(message: string) {
-  const box = document.querySelector<HTMLDivElement>("#bookingResult");
-  if (!box) return;
-  box.innerHTML = message;
-}
-
 function bindEvents() {
-  document.querySelectorAll<HTMLButtonElement>("[data-tab]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.tab = button.dataset.tab as Tab;
+  // Tab switching
+  document.querySelectorAll<HTMLButtonElement>("[data-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.tab = btn.dataset.tab as Tab;
       state.step = 1;
+      if (state.tab === "provider") {
+        fetchProviderCarriers();
+      }
       render();
     });
   });
 
-  document.querySelector<HTMLButtonElement>("#searchBtn")?.addEventListener("click", () => {
-    logFunnelEvent('search_submit', { size: state.size, location: state.location, days: daysBetween(state.startDate, state.endDate) });
-    state.step = 1;
+  // Renter flow
+  document.querySelector<HTMLInputElement>("#startDate")?.addEventListener("change", (e) => {
+    state.startDate = (e.target as HTMLInputElement).value;
+    render();
+  });
+  document.querySelector<HTMLInputElement>("#endDate")?.addEventListener("change", (e) => {
+    state.endDate = (e.target as HTMLInputElement).value;
+    render();
+  });
+  document.querySelector<HTMLSelectElement>("#size")?.addEventListener("change", (e) => {
+    state.size = (e.target as HTMLSelectElement).value as Size;
     state.selectedCarrierId = "";
-    showResult("");
     render();
   });
 
-  document.querySelector<HTMLInputElement>("#startDate")?.addEventListener("change", (event) => {
-    state.startDate = (event.target as HTMLInputElement).value;
+  document.querySelector<HTMLButtonElement>("#searchBtn")?.addEventListener("click", () => {
+    searchCarriers();
     render();
-  });
-  document.querySelector<HTMLInputElement>("#endDate")?.addEventListener("change", (event) => {
-    state.endDate = (event.target as HTMLInputElement).value;
-    render();
-  });
-  document.querySelector<HTMLSelectElement>("#size")?.addEventListener("change", (event) => {
-    state.size = (event.target as HTMLSelectElement).value as Size;
-    state.selectedCarrierId = "";
-    render();
-  });
-  document.querySelector<HTMLInputElement>("#location")?.addEventListener("input", (event) => {
-    state.location = (event.target as HTMLInputElement).value;
   });
 
   document.querySelectorAll<HTMLElement>("[data-select]").forEach((card) => {
     card.addEventListener("click", () => {
-      state.selectedCarrierId = card.dataset.select ?? "";
+      state.selectedCarrierId = card.dataset.select || "";
+      logFunnelEvent("detail_view", { carrierId: state.selectedCarrierId });
       render();
     });
   });
 
-  document.querySelectorAll<HTMLButtonElement>("[data-step]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.step = Number(button.dataset.step) as Step;
-      render();
+  document.querySelectorAll<HTMLButtonElement>("[data-step]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const step = Number(btn.dataset.step) as Step;
+      if (step >= 1 && step <= 3) {
+        state.step = step;
+        render();
+      }
     });
   });
 
   document.querySelector<HTMLButtonElement>("#toStep2")?.addEventListener("click", () => {
     state.step = 2;
+    logFunnelEvent("checkout_step1", { step: 1 });
     render();
   });
 
-  document.querySelector<HTMLInputElement>("#customerName")?.addEventListener("input", (event) => {
-    state.customerName = (event.target as HTMLInputElement).value;
+  document.querySelector<HTMLInputElement>("#customerName")?.addEventListener("input", (e) => {
+    state.customerName = (e.target as HTMLInputElement).value;
   });
-  document.querySelector<HTMLInputElement>("#customerPhone")?.addEventListener("input", (event) => {
-    state.customerPhone = (event.target as HTMLInputElement).value;
+  document.querySelector<HTMLInputElement>("#customerPhone")?.addEventListener("input", (e) => {
+    state.customerPhone = (e.target as HTMLInputElement).value;
   });
+
   document.querySelector<HTMLButtonElement>("#toStep3")?.addEventListener("click", () => {
-    state.step = 3;
+    logFunnelEvent("checkout_step2", { step: 2 });
+    createBooking();
     render();
   });
-  document.querySelector<HTMLSelectElement>("#deliveryStatus")?.addEventListener("change", (event) => {
-    state.deliveryStatus = (event.target as HTMLSelectElement).value as DeliveryStatus;
+
+  document.querySelector<HTMLButtonElement>("#bookingBtn")?.addEventListener("click", () => {
+    createBooking();
   });
 
-  document.querySelector<HTMLButtonElement>("#payNow")?.addEventListener("click", () => {
-    const rentalDays = daysBetween(state.startDate, state.endDate);
-    const selected = currentSelection(rentalDays);
-    if (!selected) return;
-    const total = totalPrice(selected.size, rentalDays);
-    const refundNow = refundAmount(state.startDate, total);
-    const bookingId = `BK-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-    
-    // Log paid event
-    logFunnelEvent('paid', { bookingId, total, carrierId: selected.id, days: rentalDays });
-    
-    showResult(`
-      <div class="result">
-        <h4>예약 완료</h4>
-        <p>예약번호: <strong>${bookingId}</strong></p>
-        <p>총결제액: <strong>${currency(total)}</strong></p>
-        <p>보증금: <strong>${currency(POLICY.deposit[selected.size])}</strong></p>
-        <p>배송상태: <strong>${state.deliveryStatus}</strong></p>
-        <p>지금 취소 시 환불액: <strong>${currency(refundNow)}</strong></p>
-      </div>
-    `);
+  document.querySelector<HTMLButtonElement>("#payAuthorize")?.addEventListener("click", () => {
+    authorizePayment();
+  });
+
+  // Provider flow
+  document.querySelector<HTMLSelectElement>("#providerSize")?.addEventListener("change", (e) => {
+    state.providerSize = (e.target as HTMLSelectElement).value as Size;
+  });
+  document.querySelector<HTMLInputElement>("#providerBrand")?.addEventListener("input", (e) => {
+    state.providerBrand = (e.target as HTMLInputElement).value;
+  });
+  document.querySelector<HTMLInputElement>("#providerModel")?.addEventListener("input", (e) => {
+    state.providerModel = (e.target as HTMLInputElement).value;
+  });
+  document.querySelector<HTMLInputElement>("#providerPrice")?.addEventListener("input", (e) => {
+    state.providerBasePrice = Number((e.target as HTMLInputElement).value) || 0;
+  });
+  document.querySelector<HTMLInputElement>("#providerPhoto")?.addEventListener("input", (e) => {
+    state.providerPhotoUrl = (e.target as HTMLInputElement).value;
+  });
+  document.querySelector<HTMLInputElement>("#providerOptIn")?.addEventListener("change", (e) => {
+    state.providerOptIn = (e.target as HTMLInputElement).checked;
+  });
+
+  document.querySelector<HTMLButtonElement>("#registerBtn")?.addEventListener("click", () => {
+    registerCarrier();
   });
 }
 
+// Initial render
+logFunnelEvent("landing_view", { timestamp: new Date().toISOString() });
 render();

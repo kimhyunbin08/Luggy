@@ -1,251 +1,603 @@
 import express from 'express';
 import { z } from 'zod';
-import { calculateRefundAmount, calculateSettlement, calculateTotalPrice, validateMinimumRentalDays } from './domain/calculators.js';
-import { CarrierSize, defaultPolicy, PolicyVersion } from './domain/policy.js';
-
-type BookingStatus =
-  | 'requested'
-  | 'payment_method_saved'
-  | 'payment_authorized'
-  | 'confirmed'
-  | 'outbound_in_transit'
-  | 'in_use'
-  | 'return_in_transit'
-  | 'inspection_pending'
-  | 'claim_resolving'
-  | 'completed'
-  | 'cancelled';
-
-type Booking = {
-  id: string;
-  carrierId: string;
-  size: CarrierSize;
-  startDate: string;
-  endDate: string;
-  status: BookingStatus;
-  totalPrice: number;
-  policyVersionId: string;
-  deliveryStatus: 'pending' | 'in_transit' | 'arrived' | 'delayed';
-  claimResolved: boolean;
-  inspectionPhotos: string[];
-  idempotencyKey?: string;
-  createdAt: string;
-};
-
-type Carrier = {
-  id: string;
-  size: CarrierSize;
-  optIn: boolean;
-  available: boolean;
-  quantity: number;
-};
-
-const policyVersions: Map<string, PolicyVersion> = new Map([['v1', defaultPolicy]]);
-const carriers: Carrier[] = [{ id: 'c1', size: 'carry_on' as CarrierSize, optIn: true, available: true, quantity: 5 }];
-const bookings = new Map<string, Booking>();
-const idempotencyCache = new Map<string, any>();
+import { v4 as uuidv4 } from 'uuid';
+import { query } from './db/pool.js';
+import * as carrierService from './services/carrier.service.js';
+import * as bookingService from './services/booking.service.js';
+import * as inspectionService from './services/inspection.service.js';
+import * as policyService from './services/policy.service.js';
+import { CarrierSize } from './models/types.js';
 
 export function createApp() {
   const app = express();
   app.use(express.json());
 
-  app.get('/renters/search', (req, res) => {
-    const size = (req.query.size as CarrierSize) || 'carry_on';
-    const result = carriers
-      .filter((c) => c.optIn && c.available && c.size === size)
-      .map((c) => ({
-        id: c.id,
-        thumbnail: 'thumb.jpg',
-        brandModel: 'Luggy Carry',
-        rating: 4.8,
-        reviews: 42,
-        inspectionBadge: true,
-        scarcity: '남은 수량 1개',
-        originalPrice: 35000,
-        totalPrice: calculateTotalPrice(size, new Date('2026-08-10'), new Date('2026-08-12'), defaultPolicy),
+  // ============================================================
+  // PROVIDER ENDPOINTS
+  // ============================================================
+
+  // POST /providers/carriers - Register a new carrier for storage
+  app.post('/providers/carriers', async (req, res) => {
+    try {
+      const schema = z.object({
+        providerId: z.string().uuid(),
+        size: z.enum(['carry_on', 'medium']),
+        brandModel: z.string().min(1),
+        basePrice: z.number().positive(),
+        intakePhotoUrl: z.string().url().optional(),
+      });
+
+      const parsed = schema.parse(req.body);
+      const carrier = await carrierService.createCarrier(
+        parsed.providerId,
+        parsed.size as CarrierSize,
+        parsed.brandModel,
+        parsed.basePrice,
+        parsed.intakePhotoUrl
+      );
+
+      res.status(201).json(carrier);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Validation failed', details: error.issues });
+      }
+      console.error('Error creating carrier:', error);
+      res.status(500).json({ error: 'Failed to create carrier' });
+    }
+  });
+
+  // POST /providers/carriers/{id}/opt-in - Enable rental for a carrier
+  app.post('/providers/carriers/:id/opt-in', async (req, res) => {
+    try {
+      const carrierId = req.params.id;
+      const carrier = await carrierService.getCarrierById(carrierId);
+
+      if (!carrier) {
+        return res.status(404).json({ error: 'Carrier not found' });
+      }
+
+      // Check if carrier is in rentable state
+      if (carrier.status !== 'available') {
+        return res.status(400).json({
+          error: `Cannot opt-in: carrier status is ${carrier.status}`,
+        });
+      }
+
+      await carrierService.setCarrierOptIn(carrierId, true);
+      res.json({ success: true, message: 'Carrier now available for rental' });
+    } catch (error) {
+      console.error('Error enabling rental:', error);
+      res.status(500).json({ error: 'Failed to enable rental' });
+    }
+  });
+
+  // GET /providers/:id/carriers - List provider's carriers
+  app.get('/providers/:id/carriers', async (req, res) => {
+    try {
+      const providerId = req.params.id;
+      const carriers = await carrierService.getProviderCarriers(providerId);
+      res.json({ carriers });
+    } catch (error) {
+      console.error('Error fetching providers carriers:', error);
+      res.status(500).json({ error: 'Failed to fetch carriers' });
+    }
+  });
+
+  // ============================================================
+  // RENTER ENDPOINTS
+  // ============================================================
+
+  // GET /renters/search - Search for rentable carriers
+  app.get('/renters/search', async (req, res) => {
+    try {
+      const size = (req.query.size as string) || 'carry_on';
+      const startDateStr = req.query.start_date as string;
+      const endDateStr = req.query.end_date as string;
+      const sort = (req.query.sort as string) || 'recommended';
+
+      if (!startDateStr || !endDateStr) {
+        return res.status(400).json({
+          error: 'start_date and end_date query parameters are required',
+        });
+      }
+
+      const startDate = new Date(startDateStr);
+      const endDate = new Date(endDateStr);
+
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        return res.status(400).json({ error: 'Invalid date format' });
+      }
+
+      // Validate minimum rental days
+      const rentalDays = policyService.calculateRentalDays(startDate, endDate);
+      const policy = await policyService.getActivePolicy();
+
+      if (rentalDays < policy.minRentalDays) {
+        return res.status(400).json({
+          error: `Minimum rental period is ${policy.minRentalDays} days`,
+        });
+      }
+
+      const availableCarriers = await carrierService.getAvailableCarriersForRental(
+        size as CarrierSize,
+        startDate,
+        endDate
+      );
+
+      const totalPrice = policyService.calculateTotalPrice(
+        size as CarrierSize,
+        startDate,
+        endDate,
+        policy
+      );
+
+      const results = availableCarriers.map((carrier) => ({
+        id: carrier.id,
+        size: carrier.size,
+        brandModel: carrier.brandModel,
+        totalPrice,
         eta: '내일 도착',
-        remainingQuantity: 1
+        remainingQuantity: 1,
+        provider: {
+          id: carrier.providerId,
+          rating: 4.8,
+          reviews: 42,
+        },
       }));
-    res.json({ sort: 'recommended', items: result });
-  });
 
-  app.get('/carriers/:id', (req, res) => {
-    const carrier = carriers.find((c) => c.id === req.params.id);
-    if (!carrier) return res.status(404).json({ message: 'not found' });
-    res.json(carrier);
-  });
-
-  app.post('/bookings', (req, res) => {
-    const schema = z.object({
-      carrierId: z.string(),
-      size: z.enum(['carry_on', 'medium']),
-      startDate: z.string(),
-      endDate: z.string(),
-      idempotencyKey: z.string().optional()
-    });
-    const parsed = schema.parse(req.body);
-    
-    // Idempotency check
-    if (parsed.idempotencyKey && idempotencyCache.has(parsed.idempotencyKey)) {
-      return res.status(200).json(idempotencyCache.get(parsed.idempotencyKey));
+      res.json({
+        sort,
+        items: results,
+        metadata: {
+          startDate: startDateStr,
+          endDate: endDateStr,
+          rentalDays,
+        },
+      });
+    } catch (error) {
+      console.error('Error searching carriers:', error);
+      res.status(500).json({ error: 'Search failed' });
     }
-    
-    const start = new Date(parsed.startDate);
-    const end = new Date(parsed.endDate);
-    
-    // Minimum rental days validation
-    if (!validateMinimumRentalDays(start, end, defaultPolicy)) {
-      return res.status(400).json({ message: 'minimum rental days is 2' });
+  });
+
+  // GET /carriers/{id} - Get carrier details
+  app.get('/carriers/:id', async (req, res) => {
+    try {
+      const carrier = await carrierService.getCarrierById(req.params.id);
+      if (!carrier) {
+        return res.status(404).json({ error: 'Carrier not found' });
+      }
+      res.json(carrier);
+    } catch (error) {
+      console.error('Error fetching carrier:', error);
+      res.status(500).json({ error: 'Failed to fetch carrier' });
     }
-    
-    // Carrier and quantity check
-    const carrier = carriers.find((c) => c.id === parsed.carrierId);
-    if (!carrier || !carrier.optIn || carrier.quantity <= 0) {
-      return res.status(400).json({ message: 'carrier not available or out of stock' });
+  });
+
+  // ============================================================
+  // BOOKING ENDPOINTS
+  // ============================================================
+
+  // POST /bookings - Create a new booking
+  app.post('/bookings', async (req, res) => {
+    try {
+      const schema = z.object({
+        renterId: z.string().uuid(),
+        carrierId: z.string().uuid(),
+        startDate: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)),
+        endDate: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)),
+        idempotencyKey: z.string().optional(),
+      });
+
+      const parsed = schema.parse(req.body);
+      const startDate = new Date(parsed.startDate);
+      const endDate = new Date(parsed.endDate);
+      const idempotencyKey = parsed.idempotencyKey || uuidv4();
+
+      // Get carrier and policy
+      const carrier = await carrierService.getCarrierById(parsed.carrierId);
+      if (!carrier) {
+        return res.status(404).json({ error: 'Carrier not found' });
+      }
+
+      const policy = await policyService.getActivePolicy();
+
+      // Validate minimum rental days
+      const rentalDays = policyService.calculateRentalDays(startDate, endDate);
+      if (rentalDays < policy.minRentalDays) {
+        return res.status(400).json({
+          error: `Minimum rental period is ${policy.minRentalDays} days`,
+        });
+      }
+
+      // Check for booking conflicts
+      const conflict = await bookingService.checkCarrierConflict(parsed.carrierId, startDate, endDate);
+      if (conflict) {
+        return res.status(409).json({ error: 'Carrier is not available for this period' });
+      }
+
+      const totalPrice = policyService.calculateTotalPrice(carrier.size, startDate, endDate, policy);
+
+      // Create booking
+      const booking = await bookingService.createBooking(
+        parsed.renterId,
+        parsed.carrierId,
+        policy.id,
+        startDate,
+        endDate,
+        totalPrice,
+        idempotencyKey
+      );
+
+      if (!booking) {
+        return res.status(500).json({ error: 'Failed to create booking' });
+      }
+
+      // Log funnel event
+      await query(
+        `INSERT INTO funnel_events (user_id, event_type, metadata, created_at) 
+         VALUES ($1, $2, $3, CURRENT_TIMESTAMP)`,
+        [parsed.renterId, 'booking_created', JSON.stringify({ bookingId: booking.id })]
+      );
+
+      res.status(201).json(booking);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Validation failed', details: error.issues });
+      }
+      console.error('Error creating booking:', error);
+      res.status(500).json({ error: 'Failed to create booking' });
     }
-    
-    const id = `b_${bookings.size + 1}`;
-    const booking: Booking = {
-      id,
-      carrierId: parsed.carrierId,
-      size: parsed.size,
-      startDate: parsed.startDate,
-      endDate: parsed.endDate,
-      status: 'requested',
-      totalPrice: calculateTotalPrice(parsed.size, start, end, defaultPolicy),
-      policyVersionId: defaultPolicy.id,
-      deliveryStatus: 'pending',
-      claimResolved: true,
-      inspectionPhotos: [],
-      idempotencyKey: parsed.idempotencyKey,
-      createdAt: new Date().toISOString()
-    };
-    
-    bookings.set(id, booking);
-    
-    // Cache idempotent response
-    if (parsed.idempotencyKey) {
-      idempotencyCache.set(parsed.idempotencyKey, booking);
+  });
+
+  // GET /bookings/{id} - Get booking details
+  app.get('/bookings/:id', async (req, res) => {
+    try {
+      const booking = await bookingService.getBookingById(req.params.id);
+      if (!booking) {
+        return res.status(404).json({ error: 'Booking not found' });
+      }
+      res.json(booking);
+    } catch (error) {
+      console.error('Error fetching booking:', error);
+      res.status(500).json({ error: 'Failed to fetch booking' });
     }
-    
-    res.status(201).json(booking);
   });
 
-  app.get('/bookings/:id', (req, res) => {
-    const booking = bookings.get(req.params.id);
-    if (!booking) return res.status(404).json({ message: 'not found' });
-    res.json(booking);
-  });
+  // POST /bookings/{id}/authorize-payment - Authorize payment
+  app.post('/bookings/:id/authorize-payment', async (req, res) => {
+    try {
+      const booking = await bookingService.getBookingById(req.params.id);
+      if (!booking) {
+        return res.status(404).json({ error: 'Booking not found' });
+      }
 
-  app.post('/bookings/:id/authorize-payment', (req, res) => {
-    const booking = bookings.get(req.params.id);
-    if (!booking) return res.status(404).json({ message: 'not found' });
-    booking.status = 'payment_authorized';
-    res.json({ ok: true, booking });
-  });
+      // Update booking status
+      await bookingService.updateBookingStatus(req.params.id, 'payment_authorized');
 
-  app.post('/bookings/:id/cancel', (req, res) => {
-    const booking = bookings.get(req.params.id);
-    if (!booking) return res.status(404).json({ message: 'not found' });
-    const hoursBeforePickup = Number(req.body?.hoursBeforePickup ?? 0);
-    const refundAmount = calculateRefundAmount(booking.totalPrice, hoursBeforePickup, defaultPolicy);
-    booking.status = 'cancelled';
-    res.json({ refundAmount });
-  });
+      // Log payment event
+      await query(
+        `INSERT INTO ledger_entries (booking_id, entry_type, amount, created_at)
+         VALUES ($1, $2, $3, CURRENT_TIMESTAMP)`,
+        [req.params.id, 'charge', booking.totalPrice]
+      );
 
-  app.post('/providers/carriers', (req, res) => {
-    const id = `c${carriers.length + 1}`;
-    carriers.push({ id, size: req.body?.size ?? 'carry_on', optIn: false, available: true, quantity: 1 });
-    res.status(201).json({ id });
-  });
-
-  app.post('/providers/carriers/:id/opt-in', (req, res) => {
-    const carrier = carriers.find((c) => c.id === req.params.id);
-    if (!carrier) return res.status(404).json({ message: 'not found' });
-    carrier.optIn = true;
-    res.json({ ok: true });
-  });
-
-  app.post('/inspections', (req, res) => {
-    const schema = z.object({ bookingId: z.string(), photos: z.array(z.string()).min(1) });
-    const parsed = schema.parse(req.body);
-    const booking = bookings.get(parsed.bookingId);
-    if (!booking) return res.status(404).json({ message: 'not found' });
-    booking.inspectionPhotos = parsed.photos;
-    booking.status = 'inspection_pending';
-    res.status(201).json({ ok: true });
-  });
-
-  app.post('/bookings/:id/complete', (req, res) => {
-    const booking = bookings.get(req.params.id);
-    if (!booking) return res.status(404).json({ message: 'not found' });
-    if (booking.inspectionPhotos.length < 1) {
-      return res.status(400).json({ message: 'inspection photo required' });
+      res.json({
+        success: true,
+        message: 'Payment authorized',
+        bookingId: req.params.id,
+      });
+    } catch (error) {
+      console.error('Error authorizing payment:', error);
+      res.status(500).json({ error: 'Failed to authorize payment' });
     }
-    if (!booking.claimResolved) {
-      return res.status(400).json({ message: 'claim unresolved' });
+  });
+
+  // POST /bookings/{id}/cancel - Cancel a booking
+  app.post('/bookings/:id/cancel', async (req, res) => {
+    try {
+      const booking = await bookingService.getBookingById(req.params.id);
+      if (!booking) {
+        return res.status(404).json({ error: 'Booking not found' });
+      }
+
+      const policy = await policyService.getPolicyById(booking.policyVersionId);
+      const refundAmount = policyService.calculateRefund(
+        booking.totalPrice,
+        new Date(),
+        booking.createdAt,
+        policy
+      );
+
+      await bookingService.updateBookingStatus(req.params.id, 'cancelled');
+
+      // Log refund if any
+      if (refundAmount > 0) {
+        await query(
+          `INSERT INTO ledger_entries (booking_id, entry_type, amount, created_at)
+           VALUES ($1, $2, $3, CURRENT_TIMESTAMP)`,
+          [req.params.id, 'refund', refundAmount]
+        );
+      }
+
+      res.json({
+        success: true,
+        refundAmount,
+        message: `Booking cancelled. Refund: ${refundAmount}`,
+      });
+    } catch (error) {
+      console.error('Error cancelling booking:', error);
+      res.status(500).json({ error: 'Failed to cancel booking' });
     }
-    booking.status = 'completed';
-    const settlement = calculateSettlement(booking.totalPrice, defaultPolicy);
-    res.json({ settlement });
   });
 
-  app.post('/claims/:id/resolve', (_req, res) => {
-    res.json({ ok: true });
+  // ============================================================
+  // INSPECTION ENDPOINTS
+  // ============================================================
+
+  // POST /inspections - Upload inspection photos
+  app.post('/inspections', async (req, res) => {
+    try {
+      const schema = z.object({
+        bookingId: z.string().uuid(),
+        inspectionType: z.enum(['intake', 'outbound', 'return']),
+        photos: z.array(z.string().url()).min(1),
+        inspectorId: z.string().uuid().optional(),
+      });
+
+      const parsed = schema.parse(req.body);
+
+      const booking = await bookingService.getBookingById(parsed.bookingId);
+      if (!booking) {
+        return res.status(404).json({ error: 'Booking not found' });
+      }
+
+      // Create inspection
+      const inspection = await inspectionService.createInspection(
+        parsed.bookingId,
+        parsed.inspectionType,
+        parsed.inspectorId
+      );
+
+      // Upload photos
+      for (const photoUrl of parsed.photos) {
+        await inspectionService.uploadInspectionPhoto(inspection.id, photoUrl);
+      }
+
+      // Mark inspection as completed
+      await inspectionService.completeInspection(inspection.id, 'approved');
+
+      res.status(201).json({
+        success: true,
+        inspectionId: inspection.id,
+        photosCount: parsed.photos.length,
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Validation failed', details: error.issues });
+      }
+      console.error('Error creating inspection:', error);
+      res.status(500).json({ error: 'Failed to upload inspection' });
+    }
   });
 
-  app.post('/funnel/events', (req, res) => {
-    const schema = z.object({
-      event: z.enum(['landing_view', 'search_submit', 'result_view', 'detail_view', 'checkout_step1', 'checkout_step2', 'checkout_step3', 'paid']),
-      sessionId: z.string(),
-      timestamp: z.string(),
-      metadata: z.record(z.string(), z.any()).optional()
-    });
-    const parsed = schema.parse(req.body);
-    console.log(`[FUNNEL] ${parsed.event} by session ${parsed.sessionId} at ${parsed.timestamp}`, parsed.metadata ?? {});
-    res.status(201).json({ ok: true, received: parsed });
+  // GET /inspections/{id} - Get inspection details
+  app.get('/inspections/:id', async (req, res) => {
+    try {
+      const inspection = await inspectionService.getInspectionById(req.params.id);
+      if (!inspection) {
+        return res.status(404).json({ error: 'Inspection not found' });
+      }
+
+      const photos = await inspectionService.getInspectionPhotos(req.params.id);
+      res.json({ ...inspection, photos });
+    } catch (error) {
+      console.error('Error fetching inspection:', error);
+      res.status(500).json({ error: 'Failed to fetch inspection' });
+    }
   });
 
-  app.get('/health', (req, res) => {
+  // ============================================================
+  // BOOKING LIFECYCLE ENDPOINTS
+  // ============================================================
+
+  // POST /bookings/{id}/complete - Complete a booking
+  app.post('/bookings/:id/complete', async (req, res) => {
+    try {
+      const booking = await bookingService.getBookingById(req.params.id);
+      if (!booking) {
+        return res.status(404).json({ error: 'Booking not found' });
+      }
+
+      // Check if inspection is done
+      const inspections = await inspectionService.getBookingInspections(req.params.id);
+      if (inspections.length === 0) {
+        return res.status(400).json({ error: 'Inspection photos required before completing' });
+      }
+
+      // Update booking status
+      await bookingService.updateBookingStatus(req.params.id, 'completed');
+
+      // Calculate settlement
+      const policy = await policyService.getPolicyById(booking.policyVersionId);
+      const settlement = policyService.calculateSettlement(booking.totalPrice, policy);
+
+      res.json({
+        success: true,
+        settlement,
+        message: 'Booking completed',
+      });
+    } catch (error) {
+      console.error('Error completing booking:', error);
+      res.status(500).json({ error: 'Failed to complete booking' });
+    }
+  });
+
+  // POST /claims/{id}/resolve - Resolve a damage claim
+  app.post('/claims/:id/resolve', async (req, res) => {
+    try {
+      const schema = z.object({
+        status: z.enum(['approved', 'rejected']),
+        resolutionNotes: z.string().optional(),
+      });
+
+      const parsed = schema.parse(req.body);
+
+      await query(
+        `UPDATE damage_claims 
+         SET status = $1, resolution_notes = $2, resolved_at = CURRENT_TIMESTAMP 
+         WHERE id = $3`,
+        [parsed.status, parsed.resolutionNotes, req.params.id]
+      );
+
+      res.json({
+        success: true,
+        message: 'Claim resolved',
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Validation failed', details: error.issues });
+      }
+      console.error('Error resolving claim:', error);
+      res.status(500).json({ error: 'Failed to resolve claim' });
+    }
+  });
+
+  // ============================================================
+  // FUNNEL & EVENTS ENDPOINTS
+  // ============================================================
+
+  // POST /funnel/events - Log funnel events
+  app.post('/funnel/events', async (req, res) => {
+    try {
+      const schema = z.object({
+        eventType: z.string(),
+        userId: z.string().uuid().optional(),
+        sessionId: z.string().optional(),
+        metadata: z.record(z.string(), z.unknown()).optional(),
+      });
+
+      const parsed = schema.parse(req.body);
+
+      await query(
+        `INSERT INTO funnel_events (user_id, event_type, metadata, created_at)
+         VALUES ($1, $2, $3, CURRENT_TIMESTAMP)`,
+        [parsed.userId, parsed.eventType, JSON.stringify(parsed.metadata || {})]
+      );
+
+      res.status(201).json({ success: true });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Validation failed', details: error.issues });
+      }
+      console.error('Error logging funnel event:', error);
+      res.status(500).json({ error: 'Failed to log event' });
+    }
+  });
+
+  // ============================================================
+  // WEBHOOK ENDPOINTS
+  // ============================================================
+
+  // POST /webhooks/payments - Payment status webhook
+  app.post('/webhooks/payments', async (req, res) => {
+    try {
+      const schema = z.object({
+        bookingId: z.string().uuid(),
+        status: z.enum(['authorized', 'completed', 'failed']),
+      });
+
+      const parsed = schema.parse(req.body);
+      const booking = await bookingService.getBookingById(parsed.bookingId);
+
+      if (!booking) {
+        return res.status(404).json({ error: 'Booking not found' });
+      }
+
+      if (parsed.status === 'completed') {
+        await bookingService.updateBookingStatus(parsed.bookingId, 'confirmed');
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error processing payment webhook:', error);
+      res.status(500).json({ error: 'Webhook processing failed' });
+    }
+  });
+
+  // POST /webhooks/delivery - Delivery status webhook
+  app.post('/webhooks/delivery', async (req, res) => {
+    try {
+      const schema = z.object({
+        bookingId: z.string().uuid(),
+        direction: z.enum(['outbound', 'return']),
+        status: z.enum(['in_transit', 'arrived', 'delayed']),
+      });
+
+      const parsed = schema.parse(req.body);
+      const booking = await bookingService.getBookingById(parsed.bookingId);
+
+      if (!booking) {
+        return res.status(404).json({ error: 'Booking not found' });
+      }
+
+      await bookingService.updateDeliveryStatus(parsed.bookingId, parsed.status);
+
+      // Update booking status based on delivery direction
+      if (parsed.direction === 'outbound') {
+        if (parsed.status === 'in_transit') {
+          await bookingService.updateBookingStatus(parsed.bookingId, 'outbound_in_transit');
+        } else if (parsed.status === 'arrived') {
+          await bookingService.updateBookingStatus(parsed.bookingId, 'in_use');
+        }
+      } else if (parsed.direction === 'return') {
+        if (parsed.status === 'in_transit') {
+          await bookingService.updateBookingStatus(parsed.bookingId, 'return_in_transit');
+        } else if (parsed.status === 'arrived') {
+          await bookingService.updateBookingStatus(parsed.bookingId, 'inspection_pending');
+        }
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error processing delivery webhook:', error);
+      res.status(500).json({ error: 'Webhook processing failed' });
+    }
+  });
+
+  // ============================================================
+  // HEALTH & METRICS
+  // ============================================================
+
+  app.get('/health', (_req, res) => {
     res.json({
       status: 'ok',
       timestamp: new Date().toISOString(),
-      carriers: carriers.length,
-      bookings: bookings.size,
-      policyVersions: policyVersions.size
+      environment: process.env.NODE_ENV || 'development',
     });
   });
 
-  app.get('/metrics/inventory', (req, res) => {
-    const inventorySnapshot = carriers.map((c) => ({
-      id: c.id,
-      size: c.size,
-      available: c.available,
-      quantity: c.quantity,
-      optIn: c.optIn
-    }));
-    res.json({ inventory: inventorySnapshot, timestamp: new Date().toISOString() });
-  });
+  app.get('/metrics/funnel', async (_req, res) => {
+    try {
+      const result = await query(
+        `SELECT 
+          event_type, 
+          COUNT(*) as count 
+         FROM funnel_events 
+         WHERE created_at > NOW() - INTERVAL '24 hours'
+         GROUP BY event_type
+         ORDER BY count DESC`
+      );
 
-  app.get('/metrics/funnel', (req, res) => {
-    res.json({
-      totalBookings: bookings.size,
-      completedBookings: Array.from(bookings.values()).filter((b) => b.status === 'completed').length,
-      cancelledBookings: Array.from(bookings.values()).filter((b) => b.status === 'cancelled').length,
-      timestamp: new Date().toISOString()
-    });
-  });
-
-
-  app.post('/webhooks/delivery', (req, res) => {
-    const schema = z.object({ bookingId: z.string(), status: z.enum(['in_transit', 'arrived', 'delayed']) });
-    const parsed = schema.parse(req.body);
-    const booking = bookings.get(parsed.bookingId);
-    if (!booking) return res.status(404).json({ message: 'not found' });
-    booking.deliveryStatus = parsed.status;
-    if (parsed.status === 'in_transit') booking.status = 'outbound_in_transit';
-    if (parsed.status === 'arrived') booking.status = 'in_use';
-    res.json({ ok: true });
+      res.json({
+        period: '24h',
+        events: result.rows,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error('Error fetching metrics:', error);
+      res.status(500).json({ error: 'Failed to fetch metrics' });
+    }
   });
 
   return app;
@@ -253,7 +605,8 @@ export function createApp() {
 
 if (process.env.NODE_ENV !== 'test') {
   const app = createApp();
-  app.listen(3001, () => {
-    // noop
+  const port = process.env.PORT || 3001;
+  app.listen(port, () => {
+    console.log(`[Luggy API] Server running on port ${port}`);
   });
 }
