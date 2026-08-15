@@ -32,6 +32,27 @@ const POLICY = {
   } as Record<Size, number>
 };
 
+// Session ID for analytics
+const sessionId = `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+// Funnel event tracker
+async function logFunnelEvent(event: string, metadata?: Record<string, any>) {
+  try {
+    await fetch('http://localhost:3001/funnel/events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        event,
+        sessionId,
+        timestamp: new Date().toISOString(),
+        metadata: metadata || {}
+      })
+    });
+  } catch (err) {
+    console.error('[Analytics] Failed to log event:', event, err);
+  }
+}
+
 const carriers: Carrier[] = [
   {
     id: "c-1",
@@ -146,6 +167,28 @@ function render() {
   const canSearch = rentalDays >= POLICY.minDays && state.location.trim().length > 0;
   const canStep2 = !!selected && selected.stock > 0 && rentalDays >= POLICY.minDays;
   const canStep3 = canStep2 && state.customerName.trim().length > 1 && state.customerPhone.trim().length > 7;
+
+  // Log funnel events
+  if (state.tab === "rent" && items.length > 0 && !sessionStorage.getItem(`_luggy_result_view`)) {
+    sessionStorage.setItem(`_luggy_result_view`, "1");
+    logFunnelEvent('result_view', { size: state.size, itemCount: items.length });
+  }
+  if (selected && !sessionStorage.getItem(`_luggy_detail_view_${selected.id}`)) {
+    sessionStorage.setItem(`_luggy_detail_view_${selected.id}`, "1");
+    logFunnelEvent('detail_view', { carrierId: selected.id, brand: selected.brand });
+  }
+  if (state.step === 1 && selected && !sessionStorage.getItem(`_luggy_checkout_step1`)) {
+    sessionStorage.setItem(`_luggy_checkout_step1`, "1");
+    logFunnelEvent('checkout_step1', { step: 1 });
+  }
+  if (state.step === 2 && !sessionStorage.getItem(`_luggy_checkout_step2`)) {
+    sessionStorage.setItem(`_luggy_checkout_step2`, "1");
+    logFunnelEvent('checkout_step2', { step: 2 });
+  }
+  if (state.step === 3 && !sessionStorage.getItem(`_luggy_checkout_step3`)) {
+    sessionStorage.setItem(`_luggy_checkout_step3`, "1");
+    logFunnelEvent('checkout_step3', { step: 3 });
+  }
 
   app.innerHTML = `
     <main class="page">
@@ -310,6 +353,7 @@ function bindEvents() {
   });
 
   document.querySelector<HTMLButtonElement>("#searchBtn")?.addEventListener("click", () => {
+    logFunnelEvent('search_submit', { size: state.size, location: state.location, days: daysBetween(state.startDate, state.endDate) });
     state.step = 1;
     state.selectedCarrierId = "";
     showResult("");
@@ -373,6 +417,10 @@ function bindEvents() {
     const total = totalPrice(selected.size, rentalDays);
     const refundNow = refundAmount(state.startDate, total);
     const bookingId = `BK-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+    
+    // Log paid event
+    logFunnelEvent('paid', { bookingId, total, carrierId: selected.id, days: rentalDays });
+    
     showResult(`
       <div class="result">
         <h4>예약 완료</h4>

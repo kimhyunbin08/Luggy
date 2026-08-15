@@ -1,7 +1,7 @@
 import express from 'express';
 import { z } from 'zod';
 import { calculateRefundAmount, calculateSettlement, calculateTotalPrice, validateMinimumRentalDays } from './domain/calculators.js';
-import { CarrierSize, defaultPolicy } from './domain/policy.js';
+import { CarrierSize, defaultPolicy, PolicyVersion } from './domain/policy.js';
 
 type BookingStatus =
   | 'requested'
@@ -28,10 +28,22 @@ type Booking = {
   deliveryStatus: 'pending' | 'in_transit' | 'arrived' | 'delayed';
   claimResolved: boolean;
   inspectionPhotos: string[];
+  idempotencyKey?: string;
+  createdAt: string;
 };
 
-const carriers = [{ id: 'c1', size: 'carry_on' as CarrierSize, optIn: true, available: true }];
+type Carrier = {
+  id: string;
+  size: CarrierSize;
+  optIn: boolean;
+  available: boolean;
+  quantity: number;
+};
+
+const policyVersions: Map<string, PolicyVersion> = new Map([['v1', defaultPolicy]]);
+const carriers: Carrier[] = [{ id: 'c1', size: 'carry_on' as CarrierSize, optIn: true, available: true, quantity: 5 }];
 const bookings = new Map<string, Booking>();
+const idempotencyCache = new Map<string, any>();
 
 export function createApp() {
   const app = express();
@@ -68,14 +80,30 @@ export function createApp() {
       carrierId: z.string(),
       size: z.enum(['carry_on', 'medium']),
       startDate: z.string(),
-      endDate: z.string()
+      endDate: z.string(),
+      idempotencyKey: z.string().optional()
     });
     const parsed = schema.parse(req.body);
+    
+    // Idempotency check
+    if (parsed.idempotencyKey && idempotencyCache.has(parsed.idempotencyKey)) {
+      return res.status(200).json(idempotencyCache.get(parsed.idempotencyKey));
+    }
+    
     const start = new Date(parsed.startDate);
     const end = new Date(parsed.endDate);
+    
+    // Minimum rental days validation
     if (!validateMinimumRentalDays(start, end, defaultPolicy)) {
       return res.status(400).json({ message: 'minimum rental days is 2' });
     }
+    
+    // Carrier and quantity check
+    const carrier = carriers.find((c) => c.id === parsed.carrierId);
+    if (!carrier || !carrier.optIn || carrier.quantity <= 0) {
+      return res.status(400).json({ message: 'carrier not available or out of stock' });
+    }
+    
     const id = `b_${bookings.size + 1}`;
     const booking: Booking = {
       id,
@@ -88,9 +116,18 @@ export function createApp() {
       policyVersionId: defaultPolicy.id,
       deliveryStatus: 'pending',
       claimResolved: true,
-      inspectionPhotos: []
+      inspectionPhotos: [],
+      idempotencyKey: parsed.idempotencyKey,
+      createdAt: new Date().toISOString()
     };
+    
     bookings.set(id, booking);
+    
+    // Cache idempotent response
+    if (parsed.idempotencyKey) {
+      idempotencyCache.set(parsed.idempotencyKey, booking);
+    }
+    
     res.status(201).json(booking);
   });
 
@@ -118,7 +155,7 @@ export function createApp() {
 
   app.post('/providers/carriers', (req, res) => {
     const id = `c${carriers.length + 1}`;
-    carriers.push({ id, size: req.body?.size ?? 'carry_on', optIn: false, available: true });
+    carriers.push({ id, size: req.body?.size ?? 'carry_on', optIn: false, available: true, quantity: 1 });
     res.status(201).json({ id });
   });
 
@@ -157,9 +194,48 @@ export function createApp() {
     res.json({ ok: true });
   });
 
-  app.post('/funnel/events', (_req, res) => res.status(201).json({ ok: true }));
+  app.post('/funnel/events', (req, res) => {
+    const schema = z.object({
+      event: z.enum(['landing_view', 'search_submit', 'result_view', 'detail_view', 'checkout_step1', 'checkout_step2', 'checkout_step3', 'paid']),
+      sessionId: z.string(),
+      timestamp: z.string(),
+      metadata: z.record(z.string(), z.any()).optional()
+    });
+    const parsed = schema.parse(req.body);
+    console.log(`[FUNNEL] ${parsed.event} by session ${parsed.sessionId} at ${parsed.timestamp}`, parsed.metadata ?? {});
+    res.status(201).json({ ok: true, received: parsed });
+  });
 
-  app.post('/webhooks/payments', (_req, res) => res.json({ ok: true }));
+  app.get('/health', (req, res) => {
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      carriers: carriers.length,
+      bookings: bookings.size,
+      policyVersions: policyVersions.size
+    });
+  });
+
+  app.get('/metrics/inventory', (req, res) => {
+    const inventorySnapshot = carriers.map((c) => ({
+      id: c.id,
+      size: c.size,
+      available: c.available,
+      quantity: c.quantity,
+      optIn: c.optIn
+    }));
+    res.json({ inventory: inventorySnapshot, timestamp: new Date().toISOString() });
+  });
+
+  app.get('/metrics/funnel', (req, res) => {
+    res.json({
+      totalBookings: bookings.size,
+      completedBookings: Array.from(bookings.values()).filter((b) => b.status === 'completed').length,
+      cancelledBookings: Array.from(bookings.values()).filter((b) => b.status === 'cancelled').length,
+      timestamp: new Date().toISOString()
+    });
+  });
+
 
   app.post('/webhooks/delivery', (req, res) => {
     const schema = z.object({ bookingId: z.string(), status: z.enum(['in_transit', 'arrived', 'delayed']) });
