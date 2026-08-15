@@ -8,7 +8,8 @@
     "test:watch": "vitest",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
-    "dev": "ts-node src/server.ts",
+    "dev": "tsx src/dev.ts",
+    "dev:db": "ts-node src/server.ts",
     "db:init": "node dist/scripts/init-db.js",
     "db:migrate": "psql $DATABASE_URL -f schema.sql"
   },
@@ -28,6 +29,7 @@
     "@types/pg": "^8.12.2",
     "@types/supertest": "^7.2.1",
     "@types/uuid": "^10.0.0",
-    "supertest": "^7.2.2"
+    "supertest": "^7.2.2",
+    "tsx": "^4.23.12"
   }
 }
