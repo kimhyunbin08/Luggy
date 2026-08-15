@@ -427,7 +427,10 @@ function render() {
           <label>브랜드<input id="providerBrand" value="${state.providerBrand}" placeholder="Samsonite" /></label>
           <label>모델<input id="providerModel" value="${state.providerModel}" placeholder="C-Lite" /></label>
           <label>기준가(원)<input id="providerPrice" type="number" value="${state.providerBasePrice || ""}" placeholder="100000" /></label>
-          <label>사진 URL<input id="providerPhoto" value="${state.providerPhotoUrl}" placeholder="https://..." /></label>
+          <label>사진
+            <input type="file" id="providerPhoto" accept="image/*" />
+            ${state.providerPhotoUrl ? `<small style="color: #27ae60;">✓ 사진 선택됨</small>` : '<small>기기에서 사진을 선택하세요</small>'}
+          </label>
           <label><input type="checkbox" id="providerOptIn" ${state.providerOptIn ? "checked" : ""} /> 렌탈 허용 동의</label>
           <button id="registerBtn" class="cta" ${state.loading ? "disabled" : ""}>
             ${state.loading ? "등록 중..." : "등록 및 Opt-in"}
@@ -552,8 +555,17 @@ function bindEvents() {
   document.querySelector<HTMLInputElement>("#providerPrice")?.addEventListener("input", (e) => {
     state.providerBasePrice = Number((e.target as HTMLInputElement).value) || 0;
   });
-  document.querySelector<HTMLInputElement>("#providerPhoto")?.addEventListener("input", (e) => {
-    state.providerPhotoUrl = (e.target as HTMLInputElement).value;
+  document.querySelector<HTMLInputElement>("#providerPhoto")?.addEventListener("change", async (e) => {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        const dataUrl = evt.target?.result as string;
+        state.providerPhotoUrl = dataUrl;
+        render(); // Re-render to show checkmark
+      };
+      reader.readAsDataURL(file);
+    }
   });
   document.querySelector<HTMLInputElement>("#providerOptIn")?.addEventListener("change", (e) => {
     state.providerOptIn = (e.target as HTMLInputElement).checked;
