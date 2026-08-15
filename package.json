@@ -4,6 +4,10 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "dev:api": "npm run -w apps/api dev",
+    "dev:web": "npm run -w apps/web dev",
+    "start:api": "npm run -w apps/api start",
+    "start:web": "npm run -w apps/web start",
     "test": "npm run -ws test",
     "build": "npm run -ws build"
   },
