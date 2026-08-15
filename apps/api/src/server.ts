@@ -10,6 +10,36 @@ import { CarrierSize } from './models/types.js';
 
 export function createApp() {
   const app = express();
+  app.use((req, res, next) => {
+    const origin = process.env.WEB_ORIGIN || '*';
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(204);
+    }
+    next();
+  });
+  const allowedOrigins = new Set(
+    (process.env.WEB_ORIGINS || 'http://localhost:5173,http://127.0.0.1:5173')
+      .split(',')
+      .map((origin) => origin.trim())
+      .filter(Boolean)
+  );
+
+  app.use((req, res, next) => {
+    const origin = req.header('Origin');
+    if (origin && allowedOrigins.has(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+      res.setHeader('Vary', 'Origin');
+    }
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(204);
+    }
+    next();
+  });
   app.use(express.json());
 
   // ============================================================
@@ -135,9 +165,12 @@ export function createApp() {
         id: carrier.id,
         size: carrier.size,
         brandModel: carrier.brandModel,
+        basePrice: carrier.basePrice,
+        thumbnailUrl: carrier.intakePhotoUrl,
+        inspectionBadge: carrier.intakePhotoUrl ? '검수 사진 확인' : '검수 진행',
         totalPrice,
         eta: '내일 도착',
-        remainingQuantity: 1,
+        remainingQuantity: availableCarriers.length,
         provider: {
           id: carrier.providerId,
           rating: 4.8,

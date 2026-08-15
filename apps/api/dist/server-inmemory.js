@@ -14,8 +14,42 @@ const policy = {
     refund: { fullHours: 48, halfHours: 24 },
     platformFeePercent: 80,
 };
+function carrierView(carrier) {
+    return {
+        id: carrier.id,
+        size: carrier.size,
+        brandModel: carrier.brand_model,
+        basePrice: carrier.base_price_won,
+        thumbnailUrl: carrier.intake_photo_url || undefined,
+        intakePhotoUrl: carrier.intake_photo_url || undefined,
+        inspectionBadge: carrier.intake_photo_url ? '검수 사진 확인' : '검수 진행',
+        optInRentable: carrier.is_opted_in,
+        provider: {
+            id: carrier.provider_id,
+            rating: 4.8,
+            reviews: 42,
+        },
+    };
+}
 export function createApp() {
     const app = express();
+    const allowedOrigins = new Set((process.env.WEB_ORIGINS || 'http://localhost:5173,http://127.0.0.1:5173')
+        .split(',')
+        .map((origin) => origin.trim())
+        .filter(Boolean));
+    app.use((req, res, next) => {
+        const origin = req.header('Origin');
+        if (origin && allowedOrigins.has(origin)) {
+            res.setHeader('Access-Control-Allow-Origin', origin);
+            res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+            res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+            res.setHeader('Vary', 'Origin');
+        }
+        if (req.method === 'OPTIONS') {
+            return res.sendStatus(204);
+        }
+        next();
+    });
     app.use(express.json());
     // ============================================================
     // PROVIDER ENDPOINTS
@@ -41,7 +75,7 @@ export function createApp() {
                 created_at: new Date().toISOString(),
             };
             carriers.set(carrier.id, carrier);
-            res.status(201).json(carrier);
+            res.status(201).json(carrierView(carrier));
         }
         catch (error) {
             if (error instanceof z.ZodError) {
@@ -57,7 +91,7 @@ export function createApp() {
                 return res.status(404).json({ error: 'Carrier not found' });
             }
             carrier.is_opted_in = true;
-            res.json(carrier);
+            res.json(carrierView(carrier));
         }
         catch (error) {
             res.status(500).json({ error: 'Failed to opt-in carrier' });
@@ -66,7 +100,7 @@ export function createApp() {
     app.get('/providers/:providerId/carriers', async (req, res) => {
         try {
             const providerCarriers = Array.from(carriers.values()).filter((c) => c.provider_id === req.params.providerId);
-            res.json(providerCarriers);
+            res.json({ carriers: providerCarriers.map(carrierView) });
         }
         catch (error) {
             res.status(500).json({ error: 'Failed to fetch carriers' });
@@ -89,6 +123,10 @@ export function createApp() {
             });
             const startDate = new Date(parsed.start_date);
             const endDate = new Date(parsed.end_date);
+            const rentalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+            if (!Number.isFinite(rentalDays) || rentalDays < policy.minRentalDays) {
+                return res.status(400).json({ error: `Minimum rental period is ${policy.minRentalDays} days` });
+            }
             // Find available carriers (opt-in and no conflicts)
             const available = Array.from(carriers.values()).filter((carrier) => {
                 if (!carrier.is_opted_in || carrier.size !== parsed.size)
@@ -103,7 +141,22 @@ export function createApp() {
                 });
                 return conflicts.length === 0;
             });
-            res.json(available);
+            const totalPrice = policy.dailyPrice[parsed.size] * rentalDays + policy.roundTripShipping;
+            const items = available.map((carrier) => ({
+                ...carrierView(carrier),
+                totalPrice,
+                eta: '내일 도착',
+                remainingQuantity: available.length,
+            }));
+            res.json({
+                sort: req.query.sort || 'recommended',
+                items,
+                metadata: {
+                    startDate: parsed.start_date,
+                    endDate: parsed.end_date,
+                    rentalDays,
+                },
+            });
         }
         catch (error) {
             if (error instanceof z.ZodError) {
