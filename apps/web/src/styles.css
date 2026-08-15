@@ -128,10 +128,12 @@ button {
   background: var(--cta);
   color: #fff;
   font-weight: 800;
+  cursor: pointer;
 }
 
 .cta:disabled {
   opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .warn {

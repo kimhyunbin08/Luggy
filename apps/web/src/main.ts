@@ -98,6 +98,7 @@ async function searchCarriers() {
   state.loading = true;
   state.error = "";
   state.searchResults = [];
+  render();
 
   try {
     const url = new URL(`${API_URL}/renters/search`);
@@ -127,6 +128,7 @@ async function searchCarriers() {
     console.error("[Search] Error:", err);
   } finally {
     state.loading = false;
+    render();
   }
 }
 
@@ -136,6 +138,7 @@ async function createBooking() {
   state.loading = true;
   state.error = "";
   state.bookingId = "";
+  render();
 
   try {
     const rentalDays = daysBetween(state.startDate, state.endDate);
@@ -177,6 +180,7 @@ async function createBooking() {
     console.error("[Booking] Error:", err);
   } finally {
     state.loading = false;
+    render();
   }
 }
 
@@ -185,6 +189,7 @@ async function authorizePayment() {
 
   state.loading = true;
   state.error = "";
+  render();
 
   try {
     const res = await fetch(`${API_URL}/bookings/${state.bookingId}/authorize-payment`, {
@@ -194,25 +199,29 @@ async function authorizePayment() {
     });
 
     if (!res.ok) throw new Error("Payment authorization failed");
-
-    // Show success message
-    render();
   } catch (err) {
     state.error = `결제 승인 실패: ${err instanceof Error ? err.message : String(err)}`;
     console.error("[Payment] Error:", err);
   } finally {
     state.loading = false;
+    render();
   }
 }
 
 async function registerCarrier() {
-  if (!state.providerBrand || !state.providerModel || state.providerBasePrice <= 0) {
-    state.error = "모든 필드를 입력해주세요.";
+  if (!state.providerBrand.trim() || !state.providerModel.trim() || state.providerBasePrice <= 0) {
+    const missing: string[] = [];
+    if (!state.providerBrand.trim()) missing.push("브랜드");
+    if (!state.providerModel.trim()) missing.push("모델");
+    if (state.providerBasePrice <= 0) missing.push("기준가");
+    state.error = `다음 항목을 입력해주세요: ${missing.join(", ")}`;
+    render();
     return;
   }
 
   state.loading = true;
   state.error = "";
+  render();
 
   try {
     const req = {
@@ -257,6 +266,7 @@ async function registerCarrier() {
     console.error("[Provider] Error:", err);
   } finally {
     state.loading = false;
+    render();
   }
 }
 
@@ -494,7 +504,6 @@ function bindEvents() {
 
   document.querySelector<HTMLButtonElement>("#searchBtn")?.addEventListener("click", () => {
     searchCarriers();
-    render();
   });
 
   document.querySelectorAll<HTMLElement>("[data-select]").forEach((card) => {
@@ -531,7 +540,6 @@ function bindEvents() {
   document.querySelector<HTMLButtonElement>("#toStep3")?.addEventListener("click", () => {
     logFunnelEvent("checkout_step2", { step: 2 });
     createBooking();
-    render();
   });
 
   document.querySelector<HTMLButtonElement>("#bookingBtn")?.addEventListener("click", () => {
