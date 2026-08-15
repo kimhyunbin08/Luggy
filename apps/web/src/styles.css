@@ -1,10 +1,24 @@
 :root {
-  --primary: #95b09e;
-  --accent: #cba135;
-  --bg: #f8f9fa;
-  --text: #2c3e50;
-  --line: #d8dde3;
-  --card: #ffffff;
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --surface-subtle: #eef1f5;
+  --text: #0f1f35;
+  --muted: #5f6d80;
+  --line: #d7dde5;
+  --primary: #173256;
+  --primary-strong: #0f2542;
+  --success: #1f6f4a;
+  --warning: #b05518;
+  --danger: #b63030;
+  --cta: #eb5b2a;
+  --radius-1: 10px;
+  --radius-2: 14px;
+  --radius-3: 18px;
+  --space-1: 8px;
+  --space-2: 12px;
+  --space-3: 16px;
+  --space-4: 20px;
+  --space-5: 24px;
 }
 
 * {
@@ -14,7 +28,7 @@
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
-  background: var(--bg);
+  background: linear-gradient(180deg, #f9fafb 0%, var(--bg) 65%);
   color: var(--text);
 }
 
@@ -32,7 +46,7 @@ body {
 }
 
 .brand {
-  font-size: 56px;
+  font-size: clamp(34px, 5vw, 54px);
   line-height: 1;
   letter-spacing: -0.04em;
   font-weight: 700;
@@ -46,10 +60,10 @@ body {
 .nav-btn {
   height: 40px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-1);
   padding: 0 14px;
   font-weight: 700;
-  background: #fff;
+  background: var(--surface);
   color: var(--text);
 }
 
@@ -65,27 +79,27 @@ body {
 
 .hero {
   border: 1px solid var(--line);
-  background: #eef2f3;
-  border-radius: 14px;
-  padding: 18px;
-  margin-bottom: 14px;
+  background: var(--surface);
+  border-radius: var(--radius-3);
+  padding: var(--space-5);
+  margin-bottom: var(--space-4);
 }
 
 .hero h1 {
   margin: 0 0 8px;
-  font-size: 30px;
+  font-size: clamp(24px, 3vw, 32px);
   line-height: 1.25;
 }
 
 .hero p {
-  margin: 0 0 14px;
-  color: #49596a;
+  margin: 0 0 var(--space-4);
+  color: var(--muted);
 }
 
 .search-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(120px, 0.8fr);
+  gap: var(--space-2);
   align-items: end;
 }
 
@@ -100,9 +114,9 @@ input,
 select,
 button {
   width: 100%;
-  height: 44px;
+  height: 46px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-1);
   background: #fff;
   color: var(--text);
   font-size: 15px;
@@ -110,9 +124,9 @@ button {
 }
 
 .cta {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #1b2732;
+  border-color: var(--cta);
+  background: var(--cta);
+  color: #fff;
   font-weight: 800;
 }
 
@@ -122,23 +136,23 @@ button {
 
 .warn {
   margin: 8px 0 0;
-  color: #7d4b0f;
+  color: var(--warning);
   font-weight: 700;
 }
 
 .layout {
   display: grid;
-  grid-template-columns: 2fr 1fr;
-  gap: 14px;
+  grid-template-columns: minmax(0, 1.8fr) minmax(300px, 1fr);
+  gap: var(--space-4);
 }
 
 .results,
 .checkout,
 .provider {
   border: 1px solid var(--line);
-  border-radius: 14px;
-  background: var(--card);
-  padding: 14px;
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  padding: var(--space-4);
 }
 
 .section-head {
@@ -154,31 +168,33 @@ button {
 
 .cards {
   display: grid;
-  gap: 10px;
+  gap: var(--space-3);
 }
 
 .card {
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-2);
   overflow: hidden;
   display: grid;
-  grid-template-columns: 180px 1fr;
+  grid-template-columns: 132px 1fr;
   cursor: pointer;
+  background: #fff;
 }
 
 .card.selected {
   border-color: var(--primary);
-  box-shadow: 0 0 0 2px rgba(149, 176, 158, 0.18) inset;
+  box-shadow: 0 0 0 2px rgba(23, 50, 86, 0.18) inset;
 }
 
 .card img {
   width: 100%;
-  height: 140px;
+  height: 100%;
+  min-height: 124px;
   object-fit: cover;
 }
 
 .content {
-  padding: 10px 12px 10px 0;
+  padding: 10px 12px;
 }
 
 .row {
@@ -193,15 +209,15 @@ button {
 
 .meta {
   margin: 6px 0 8px;
-  color: #5a6e80;
+  color: var(--muted);
   font-size: 13px;
   flex-wrap: wrap;
 }
 
 .badge {
-  border: 1px solid var(--primary);
-  color: #2b4a3a;
-  background: #edf4ef;
+  border: 1px solid #bfd0e6;
+  color: var(--primary);
+  background: #f2f7fd;
   border-radius: 8px;
   font-size: 12px;
   font-weight: 700;
@@ -209,13 +225,13 @@ button {
 }
 
 .total {
-  font-size: 20px;
-  color: #243443;
+  font-size: 22px;
+  color: var(--primary-strong);
 }
 
 .scarcity {
   margin: 6px 0 0;
-  color: #7f6510;
+  color: var(--warning);
   font-size: 13px;
   font-weight: 700;
 }
@@ -238,24 +254,25 @@ button {
 }
 
 .step.active {
-  background: #edf4ef;
-  border-color: var(--primary);
+  background: #f0f5fb;
+  border-color: #b5c8e0;
 }
 
 .panel {
   margin-top: 10px;
   border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 12px;
+  border-radius: var(--radius-1);
+  padding: var(--space-3);
   display: grid;
   gap: 10px;
+  background: #fff;
 }
 
 .result {
   margin-top: 10px;
-  border: 1px solid #d7c179;
-  border-radius: 10px;
-  background: #fff9e8;
+  border: 1px solid #f1c8b9;
+  border-radius: var(--radius-1);
+  background: #fff4ef;
   padding: 12px;
 }
 
@@ -291,6 +308,18 @@ button {
   }
 
   .layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .page {
+    width: min(1240px, 94vw);
+  }
+  .hero {
+    padding: var(--space-4);
+  }
+  .card {
     grid-template-columns: 1fr;
   }
 }
