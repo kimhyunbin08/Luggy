@@ -4,6 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "dev": "vite",
+    "start": "vite preview",
     "test": "vitest run tests/funnel.unit.test.ts",
     "e2e": "playwright test",
     "build": "vite build"
