@@ -3,6 +3,17 @@ name: luggy
 metadata:
   template: luggy@0.1.0
 
+# `azd up` normally overlaps packaging (Docker build) with provisioning to
+# save time. That overlap is unsafe here: web's Docker build needs
+# SERVICE_API_URI (an output only known once `provision` finishes), so an
+# overlapped build silently falls back to the Dockerfile's localhost default.
+# Force a strict provision -> package -> deploy order instead.
+workflows:
+  up:
+    - azd: provision
+    - azd: package --all
+    - azd: deploy --all
+
 services:
   api:
     project: apps/api
