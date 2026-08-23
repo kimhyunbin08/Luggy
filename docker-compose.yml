@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   postgres:
     image: postgres:16-alpine
@@ -20,34 +18,37 @@ services:
 
   api:
     build:
-      context: ./apps/api
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/api/Dockerfile
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/luggy
       NODE_ENV: development
       PORT: 3001
+      PUBLIC_API_URL: http://localhost:3001
+      WEB_ORIGIN: http://localhost:3002
+      WEB_ORIGINS: http://localhost:3002,http://127.0.0.1:3002
+      PAYMENT_WEBHOOK_SECRET: dev-payment-webhook-secret-change-me
+      DELIVERY_WEBHOOK_SECRET: dev-delivery-webhook-secret-change-me
     ports:
       - "3001:3001"
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
-      - ./apps/api/src:/app/src
-    command: npm run dev
+      - api_uploads:/app/uploads
 
   web:
     build:
-      context: ./apps/web
-      dockerfile: Dockerfile
-    environment:
-      VITE_API_URL: http://localhost:3001
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_URL: http://localhost:3001
     ports:
-      - "3000:3000"
+      # Host 3000 is already used by another project on this machine; publish on 3002 instead.
+      - "3002:3000"
     depends_on:
       - api
-    volumes:
-      - ./apps/web/src:/app/src
-    command: npm run dev
 
 volumes:
   postgres_data:
+  api_uploads:

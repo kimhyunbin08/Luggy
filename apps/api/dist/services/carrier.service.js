@@ -24,7 +24,7 @@ export async function createCarrier(providerId, size, brandModel, basePrice, int
         providerId: row.provider_id,
         size: row.size,
         brandModel: row.brand_model,
-        basePrice: row.base_price,
+        basePrice: Number(row.base_price),
         condition: row.condition,
         status: row.status,
         optInRentable: row.opt_in_rentable,
@@ -43,7 +43,7 @@ export async function getCarrierById(carrierId) {
         providerId: row.provider_id,
         size: row.size,
         brandModel: row.brand_model,
-        basePrice: row.base_price,
+        basePrice: Number(row.base_price),
         condition: row.condition,
         status: row.status,
         optInRentable: row.opt_in_rentable,
@@ -56,7 +56,19 @@ export async function updateCarrierStatus(carrierId, status) {
     await query('UPDATE carriers SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [status, carrierId]);
 }
 export async function setCarrierOptIn(carrierId, optIn) {
-    await query('UPDATE carriers SET opt_in_rentable = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [optIn, carrierId]);
+    // Opt-in is the MVP's "ready for rental" signal: it also flips the coarse carrier
+    // status between 'intake_pending' and 'available'. Actual per-date scarcity is
+    // computed separately via the booking overlap check in getAvailableCarriersForRental,
+    // so this status is only an administrative gate (not touched by booking lifecycle).
+    await query(`UPDATE carriers
+     SET opt_in_rentable = $1,
+         status = CASE
+           WHEN $1 = true THEN 'available'
+           WHEN status = 'available' THEN 'intake_pending'
+           ELSE status
+         END,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = $2`, [optIn, carrierId]);
 }
 export async function getProviderCarriers(providerId) {
     const result = await query('SELECT * FROM carriers WHERE provider_id = $1 ORDER BY created_at DESC', [providerId]);
@@ -65,7 +77,7 @@ export async function getProviderCarriers(providerId) {
         providerId: row.provider_id,
         size: row.size,
         brandModel: row.brand_model,
-        basePrice: row.base_price,
+        basePrice: Number(row.base_price),
         condition: row.condition,
         status: row.status,
         optInRentable: row.opt_in_rentable,
@@ -92,7 +104,7 @@ export async function getAvailableCarriersForRental(size, startDate, endDate) {
         providerId: row.provider_id,
         size: row.size,
         brandModel: row.brand_model,
-        basePrice: row.base_price,
+        basePrice: Number(row.base_price),
         condition: row.condition,
         status: row.status,
         optInRentable: row.opt_in_rentable,

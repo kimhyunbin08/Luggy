@@ -37,7 +37,7 @@ export async function createCarrier(
     providerId: row.provider_id,
     size: row.size,
     brandModel: row.brand_model,
-    basePrice: row.base_price,
+    basePrice: Number(row.base_price),
     condition: row.condition,
     status: row.status,
     optInRentable: row.opt_in_rentable,
@@ -57,7 +57,7 @@ export async function getCarrierById(carrierId: string): Promise<Carrier | null>
     providerId: row.provider_id,
     size: row.size,
     brandModel: row.brand_model,
-    basePrice: row.base_price,
+    basePrice: Number(row.base_price),
     condition: row.condition,
     status: row.status,
     optInRentable: row.opt_in_rentable,
@@ -75,8 +75,20 @@ export async function updateCarrierStatus(carrierId: string, status: string): Pr
 }
 
 export async function setCarrierOptIn(carrierId: string, optIn: boolean): Promise<void> {
+  // Opt-in is the MVP's "ready for rental" signal: it also flips the coarse carrier
+  // status between 'intake_pending' and 'available'. Actual per-date scarcity is
+  // computed separately via the booking overlap check in getAvailableCarriersForRental,
+  // so this status is only an administrative gate (not touched by booking lifecycle).
   await query(
-    'UPDATE carriers SET opt_in_rentable = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+    `UPDATE carriers
+     SET opt_in_rentable = $1,
+         status = CASE
+           WHEN $1 = true THEN 'available'
+           WHEN status = 'available' THEN 'intake_pending'
+           ELSE status
+         END,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = $2`,
     [optIn, carrierId]
   );
 }
@@ -92,7 +104,7 @@ export async function getProviderCarriers(providerId: string): Promise<Carrier[]
     providerId: row.provider_id,
     size: row.size,
     brandModel: row.brand_model,
-    basePrice: row.base_price,
+    basePrice: Number(row.base_price),
     condition: row.condition,
     status: row.status,
     optInRentable: row.opt_in_rentable,
@@ -128,7 +140,7 @@ export async function getAvailableCarriersForRental(
     providerId: row.provider_id,
     size: row.size,
     brandModel: row.brand_model,
-    basePrice: row.base_price,
+    basePrice: Number(row.base_price),
     condition: row.condition,
     status: row.status,
     optInRentable: row.opt_in_rentable,

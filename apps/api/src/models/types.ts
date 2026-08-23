@@ -94,9 +94,29 @@ export interface Payment {
   depositAmount?: number;
   status: 'pending' | 'authorized' | 'completed' | 'refunded' | 'failed';
   paymentMethod?: string;
+  provider?: string;
+  paymentIntentId?: string;
   idempotencyKey?: string;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface WebhookEvent {
+  id: string;
+  eventId: string;
+  source: 'payment' | 'delivery';
+  eventType: string;
+  bookingId?: string;
+  payload: unknown;
+  createdAt: Date;
+}
+
+export interface CostEntry {
+  id: string;
+  bookingId?: string;
+  costType: 'logistics' | 'depreciation' | 'other';
+  amount: number;
+  createdAt: Date;
 }
 
 export interface Inspection {
@@ -162,6 +182,7 @@ export interface DeliveryOrder {
 export interface FunnelEvent {
   id: string;
   userId?: string;
+  sessionId?: string;
   eventType: string;
   metadata?: any;
   createdAt: Date;
