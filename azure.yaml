@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+name: luggy
+metadata:
+  template: luggy@0.1.0
+
+services:
+  api:
+    project: apps/api
+    host: containerapp
+    language: js
+    docker:
+      path: Dockerfile
+      context: ../../
+
+  web:
+    project: apps/web
+    host: containerapp
+    language: js
+    docker:
+      path: Dockerfile
+      context: ../../
+      # The API's public URL is only known after `azd provision` creates the
+      # Container App; SERVICE_API_URI comes from infra/main.bicep's output
+      # and is inlined into the static bundle at build time.
+      buildArgs:
+        - VITE_API_URL=${SERVICE_API_URI}
