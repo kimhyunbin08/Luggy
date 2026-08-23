@@ -1,0 +1,14 @@
+node_modules
+apps/*/node_modules
+**/dist
+**/test-results
+apps/web/e2e
+apps/*/tests
+apps/api/uploads
+.git
+.github
+.worktrees
+.vscode
+.idea
+*.log
+npm-debug.log*

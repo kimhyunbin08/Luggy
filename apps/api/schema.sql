@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
--- 5. Payments (결제)
+-- 5. Payments (결제) — provider is always 'mock' in this MVP; no real PG is integrated.
 CREATE TABLE IF NOT EXISTS payments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   booking_id UUID NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
@@ -79,9 +79,22 @@ CREATE TABLE IF NOT EXISTS payments (
     'pending', 'authorized', 'completed', 'refunded', 'failed'
   )),
   payment_method VARCHAR(50),
+  provider VARCHAR(50) NOT NULL DEFAULT 'mock',
+  payment_intent_id VARCHAR(255),
   idempotency_key VARCHAR(255) UNIQUE,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 5b. Webhook Events (서명 검증된 웹훅 수신 이력 + idempotency dedup)
+CREATE TABLE IF NOT EXISTS webhook_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id VARCHAR(255) UNIQUE NOT NULL,
+  source VARCHAR(20) NOT NULL CHECK (source IN ('payment', 'delivery')),
+  event_type VARCHAR(50) NOT NULL,
+  booking_id UUID REFERENCES bookings(id),
+  payload JSONB NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 6. Inspections & Photos (검수)
@@ -119,7 +132,7 @@ CREATE TABLE IF NOT EXISTS damage_claims (
   resolved_at TIMESTAMPTZ
 );
 
--- 8. Settlements (정산)
+-- 8. Settlements (정산) — one settlement per booking (idempotent completion)
 CREATE TABLE IF NOT EXISTS settlements (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   provider_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -131,7 +144,17 @@ CREATE TABLE IF NOT EXISTS settlements (
     'pending', 'approved', 'paid', 'failed'
   )),
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-  paid_at TIMESTAMPTZ
+  paid_at TIMESTAMPTZ,
+  UNIQUE (booking_id)
+);
+
+-- 8b. Cost Entries (원가 — 건당 공헌이익 KPI 계산용. 정산 게이트 자동화에는 사용하지 않음)
+CREATE TABLE IF NOT EXISTS cost_entries (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  booking_id UUID REFERENCES bookings(id) ON DELETE CASCADE,
+  cost_type VARCHAR(50) NOT NULL CHECK (cost_type IN ('logistics', 'depreciation', 'other')),
+  amount DECIMAL(10, 2) NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 9. Ledger Entries (금전 추적)
@@ -159,10 +182,11 @@ CREATE TABLE IF NOT EXISTS delivery_orders (
   updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
--- 11. Funnel Events (분석)
+-- 11. Funnel Events (분석) — session_id persisted for funnel/ledger reconciliation
 CREATE TABLE IF NOT EXISTS funnel_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES users(id),
+  session_id VARCHAR(255),
   event_type VARCHAR(100) NOT NULL,
   metadata JSONB,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
@@ -178,5 +202,9 @@ CREATE INDEX idx_bookings_dates ON bookings(start_date, end_date);
 CREATE INDEX idx_inspections_booking ON inspections(booking_id);
 CREATE INDEX idx_damage_claims_booking ON damage_claims(booking_id);
 CREATE INDEX idx_settlements_provider ON settlements(provider_id);
+CREATE INDEX idx_ledger_idempotency ON ledger_entries(idempotency_key);
+CREATE INDEX idx_webhook_events_booking ON webhook_events(booking_id);
+CREATE INDEX idx_cost_entries_booking ON cost_entries(booking_id);
+CREATE INDEX idx_funnel_session ON funnel_events(session_id);
 CREATE INDEX idx_ledger_booking ON ledger_entries(booking_id);
 CREATE INDEX idx_funnel_user ON funnel_events(user_id);

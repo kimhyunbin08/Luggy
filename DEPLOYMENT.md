@@ -36,10 +36,10 @@ docker-compose up --build
 
 # 2. 서비스 확인
 # API: http://localhost:3001
-# Web: http://localhost:3000
+# Web: http://localhost:3002
 # PostgreSQL: localhost:5432 (postgres:postgres)
 
-# 3. 브라우저에서 http://localhost:3000 열기
+# 3. 브라우저에서 http://localhost:3002 열기
 ```
 
 ### 중지
@@ -170,6 +170,26 @@ POST /inspections
 }
 ```
 
+사진은 먼저 `POST /uploads/sign`으로 업로드 대상을 발급합니다.
+`AZURE_STORAGE_CONNECTION_STRING`이 설정된 환경에서는 15분짜리 쓰기 전용 Azure Blob SAS URL을
+반환하고, 로컬 환경에서는 `POST /uploads/local/{token}`에 multipart `file`을 전송하는
+디스크 fallback을 사용합니다. 반환된 `blobUrl`을 Provider 입고 또는 Inspection 사진 URL로
+저장합니다.
+
+배송과 결제 웹훅은 원문 JSON body에 대한 HMAC 서명이 필요합니다.
+
+```text
+POST /webhooks/payments
+X-Payment-Signature: t=<unix_timestamp>,v1=<sha256_hmac>
+
+POST /webhooks/delivery
+X-Delivery-Signature: t=<unix_timestamp>,v1=<sha256_hmac>
+```
+
+MVP의 결제 승인 경로는 외부 PG 대신 서명된 mock provider 이벤트를 사용하지만, 외부 이벤트와
+동일한 서명 검증 및 idempotency ledger 경로를 통과합니다. 운영 환경에서는
+`PAYMENT_WEBHOOK_SECRET`과 `DELIVERY_WEBHOOK_SECRET`을 반드시 별도 강한 값으로 설정합니다.
+
 ### 퍼널 & 메트릭
 
 ```bash
@@ -182,6 +202,9 @@ POST /funnel/events
 
 # 퍼널 메트릭 조회
 GET /metrics/funnel
+
+# KPI 대시보드 집계
+GET /metrics/kpi
 ```
 
 ---
@@ -243,6 +266,18 @@ npx playwright test --ui
   platformFeePercent: 80  // Platform 80% / Provider 20%
 }
 ```
+
+## 런타임 환경 변수
+
+| 변수 | 용도 |
+| --- | --- |
+| `DATABASE_URL` | PostgreSQL 연결 문자열 |
+| `PUBLIC_API_URL` | 로컬 업로드 fallback의 공개 URL |
+| `WEB_ORIGIN` / `WEB_ORIGINS` | Web CORS 허용 origin |
+| `PAYMENT_WEBHOOK_SECRET` | 결제 웹훅 HMAC 비밀키 |
+| `DELIVERY_WEBHOOK_SECRET` | 배송 웹훅 HMAC 비밀키 |
+| `AZURE_STORAGE_CONNECTION_STRING` | 설정 시 Azure Blob SAS 업로드 활성화 |
+| `AZURE_BLOB_CONTAINER_INTAKE` / `AZURE_BLOB_CONTAINER_INSPECTION` | Blob 컨테이너명 override |
 
 ---
 

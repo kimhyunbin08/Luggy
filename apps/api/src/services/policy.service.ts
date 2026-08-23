@@ -86,14 +86,16 @@ export function calculateTotalPrice(
 export function calculateRefund(
   totalPrice: number,
   cancellationTime: Date,
-  bookingCreatedAt: Date,
+  pickupDate: Date,
   policy: PolicyVersion
 ): number {
-  const hoursElapsed = (cancellationTime.getTime() - bookingCreatedAt.getTime()) / (1000 * 60 * 60);
+  // Refund tiers are based on how far cancellation happens BEFORE pickup (수령),
+  // not how much time has elapsed since the booking was created.
+  const hoursBeforePickup = (pickupDate.getTime() - cancellationTime.getTime()) / (1000 * 60 * 60);
 
-  if (hoursElapsed <= policy.refundFullHours) {
+  if (hoursBeforePickup >= policy.refundFullHours) {
     return totalPrice;
-  } else if (hoursElapsed <= policy.refundHalfHours) {
+  } else if (hoursBeforePickup >= policy.refundHalfHours) {
     return Math.floor(totalPrice * 0.5);
   } else {
     return 0;

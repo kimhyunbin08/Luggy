@@ -60,12 +60,14 @@ export function calculateTotalPrice(size, startDate, endDate, policy) {
     const rentalCost = rentalDays * dailyRate;
     return rentalCost + policy.roundTripShipping;
 }
-export function calculateRefund(totalPrice, cancellationTime, bookingCreatedAt, policy) {
-    const hoursElapsed = (cancellationTime.getTime() - bookingCreatedAt.getTime()) / (1000 * 60 * 60);
-    if (hoursElapsed <= policy.refundFullHours) {
+export function calculateRefund(totalPrice, cancellationTime, pickupDate, policy) {
+    // Refund tiers are based on how far cancellation happens BEFORE pickup (수령),
+    // not how much time has elapsed since the booking was created.
+    const hoursBeforePickup = (pickupDate.getTime() - cancellationTime.getTime()) / (1000 * 60 * 60);
+    if (hoursBeforePickup >= policy.refundFullHours) {
         return totalPrice;
     }
-    else if (hoursElapsed <= policy.refundHalfHours) {
+    else if (hoursBeforePickup >= policy.refundHalfHours) {
         return Math.floor(totalPrice * 0.5);
     }
     else {

@@ -5,6 +5,7 @@ WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
+COPY tsconfig.base.json ./
 COPY apps/api/package*.json apps/api/
 
 # Install dependencies
@@ -22,9 +23,12 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Install production dependencies only
-COPY apps/api/package*.json ./
-RUN npm ci --production --legacy-peer-deps
+# Reuse the workspace-resolved node_modules from the builder stage. A fresh
+# `npm ci --production` here would fail: this monorepo only has a root
+# package-lock.json (npm workspaces), and this stage doesn't have the other
+# workspaces' package.json files the lockfile expects.
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/apps/api/package*.json ./
 
 # Copy built app
 COPY --from=builder /app/apps/api/dist ./dist

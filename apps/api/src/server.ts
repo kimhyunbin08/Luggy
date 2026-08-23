@@ -1,4 +1,7 @@
 import express from 'express';
+import multer from 'multer';
+import fs from 'node:fs';
+import path from 'node:path';
 import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import { query } from './db/pool.js';
@@ -6,14 +9,25 @@ import * as carrierService from './services/carrier.service.js';
 import * as bookingService from './services/booking.service.js';
 import * as inspectionService from './services/inspection.service.js';
 import * as policyService from './services/policy.service.js';
+import * as paymentService from './services/payment.service.js';
+import * as deliveryService from './services/delivery.service.js';
+import * as ledgerService from './services/ledger.service.js';
+import * as claimService from './services/claim.service.js';
+import * as settlementService from './services/settlement.service.js';
+import * as costService from './services/cost.service.js';
+import * as storageService from './services/storage.service.js';
+import * as metricsService from './services/metrics.service.js';
+import { WebhookSignatureError } from './services/webhook.service.js';
 import { CarrierSize } from './models/types.js';
+
+const PLATFORM_LOGISTICS_COST_RATIO = Number(process.env.PLATFORM_LOGISTICS_COST_RATIO || '0.7');
 
 export function createApp() {
   const app = express();
   app.use((req, res, next) => {
     const origin = process.env.WEB_ORIGIN || '*';
     res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Payment-Signature, X-Delivery-Signature');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
     if (req.method === 'OPTIONS') {
       return res.sendStatus(204);
@@ -32,7 +46,7 @@ export function createApp() {
     if (origin && allowedOrigins.has(origin)) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Payment-Signature, X-Delivery-Signature');
       res.setHeader('Vary', 'Origin');
     }
     if (req.method === 'OPTIONS') {
@@ -40,7 +54,22 @@ export function createApp() {
     }
     next();
   });
-  app.use(express.json());
+  // Capture the raw request body bytes alongside JSON parsing so webhook
+  // routes can verify an HMAC signature computed over the exact bytes sent,
+  // not a re-serialized (and potentially differently-formatted) JSON object.
+  app.use(
+    express.json({
+      verify: (req, _res, buf) => {
+        (req as express.Request & { rawBody?: string }).rawBody = buf.toString('utf8');
+      },
+    })
+  );
+
+  // Local-disk photo upload fallback, served statically so blobUrl values
+  // returned by /uploads/sign resolve to real files when Azure Blob Storage
+  // isn't configured.
+  app.use('/uploads/files', express.static(storageService.getLocalUploadDir()));
+  const localUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
   // ============================================================
   // PROVIDER ENDPOINTS
@@ -86,8 +115,11 @@ export function createApp() {
         return res.status(404).json({ error: 'Carrier not found' });
       }
 
-      // Check if carrier is in rentable state
-      if (carrier.status !== 'available') {
+      // Opt-in is what completes the 등록(intake_pending) -> Opt-in ->
+      // 입고 가능(available) transition (TRD AC#7); only carriers that are
+      // administratively locked (maintenance/retired) or mid-lifecycle on an
+      // active booking (reserved/rented/return_processing) are rejected.
+      if (!['intake_pending', 'available'].includes(carrier.status)) {
         return res.status(400).json({
           error: `Cannot opt-in: carrier status is ${carrier.status}`,
         });
@@ -220,6 +252,7 @@ export function createApp() {
         startDate: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)),
         endDate: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)),
         idempotencyKey: z.string().optional(),
+        sessionId: z.string().optional(),
       });
 
       const parsed = schema.parse(req.body);
@@ -266,11 +299,12 @@ export function createApp() {
         return res.status(500).json({ error: 'Failed to create booking' });
       }
 
-      // Log funnel event
+      // Log funnel event (server-side dual logging alongside the client's own
+      // checkout_step3 event, per TRD risk mitigation for funnel data loss)
       await query(
-        `INSERT INTO funnel_events (user_id, event_type, metadata, created_at) 
-         VALUES ($1, $2, $3, CURRENT_TIMESTAMP)`,
-        [parsed.renterId, 'booking_created', JSON.stringify({ bookingId: booking.id })]
+        `INSERT INTO funnel_events (user_id, session_id, event_type, metadata, created_at)
+         VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)`,
+        [parsed.renterId, parsed.sessionId, 'booking_created', JSON.stringify({ bookingId: booking.id })]
       );
 
       res.status(201).json(booking);
@@ -283,21 +317,45 @@ export function createApp() {
     }
   });
 
-  // GET /bookings/{id} - Get booking details
+  // GET /bookings/{id} - Get booking details, plus the ledger/inspection/claim/
+  // settlement/delivery/payment state needed to drive the full lifecycle UI
+  // (the Ops tab) from a single call instead of many separate endpoints.
   app.get('/bookings/:id', async (req, res) => {
     try {
       const booking = await bookingService.getBookingById(req.params.id);
       if (!booking) {
         return res.status(404).json({ error: 'Booking not found' });
       }
-      res.json(booking);
+
+      const [ledgerEntries, inspections, claims, settlement, payment, deliveryTimeline] = await Promise.all([
+        ledgerService.getLedgerEntriesForBooking(booking.id),
+        inspectionService.getBookingInspections(booking.id),
+        claimService.getClaimsForBooking(booking.id),
+        settlementService.getSettlementByBooking(booking.id),
+        paymentService.getPaymentByBooking(booking.id),
+        deliveryService.getDeliveryTimeline(booking.id),
+      ]);
+
+      res.json({
+        ...booking,
+        ledgerEntries,
+        inspections,
+        claims,
+        settlement,
+        payment,
+        deliveryTimeline,
+      });
     } catch (error) {
       console.error('Error fetching booking:', error);
       res.status(500).json({ error: 'Failed to fetch booking' });
     }
   });
 
-  // POST /bookings/{id}/authorize-payment - Authorize payment
+  // POST /bookings/{id}/authorize-payment - Authorize payment via the mock
+  // payment provider. No real payment gateway is integrated (by product
+  // decision) — instead this drives two self-signed webhook events
+  // (payment.authorized, payment.completed) through the same verification +
+  // ledger code path a real inbound webhook would use.
   app.post('/bookings/:id/authorize-payment', async (req, res) => {
     try {
       const booking = await bookingService.getBookingById(req.params.id);
@@ -305,20 +363,17 @@ export function createApp() {
         return res.status(404).json({ error: 'Booking not found' });
       }
 
-      // Update booking status
-      await bookingService.updateBookingStatus(req.params.id, 'payment_authorized');
+      if (booking.status === 'cancelled') {
+        return res.status(409).json({ error: 'Cannot authorize payment for a cancelled booking' });
+      }
 
-      // Log payment event
-      await query(
-        `INSERT INTO ledger_entries (booking_id, entry_type, amount, created_at)
-         VALUES ($1, $2, $3, CURRENT_TIMESTAMP)`,
-        [req.params.id, 'charge', booking.totalPrice]
-      );
+      const payment = await paymentService.authorizeAndConfirmMockPayment(booking.id);
 
       res.json({
         success: true,
-        message: 'Payment authorized',
+        message: 'Payment authorized and confirmed',
         bookingId: req.params.id,
+        payment,
       });
     } catch (error) {
       console.error('Error authorizing payment:', error);
@@ -334,23 +389,56 @@ export function createApp() {
         return res.status(404).json({ error: 'Booking not found' });
       }
 
+      if (booking.status === 'completed') {
+        return res.status(409).json({ error: 'Cannot cancel a completed booking' });
+      }
+
+      const refundIdempotencyKey = `refund:${booking.id}`;
+
+      if (booking.status === 'cancelled') {
+        // Idempotent retry: return the amount locked in at the original
+        // cancellation time rather than recomputing against "now" again,
+        // which could shift refund tiers if retried much later.
+        const existingRefund = await ledgerService.getLedgerEntryByIdempotencyKey(refundIdempotencyKey);
+        const refundAmount = existingRefund?.amount ?? 0;
+        return res.json({
+          success: true,
+          refundAmount,
+          message: `Booking already cancelled. Refund: ${refundAmount}`,
+        });
+      }
+
       const policy = await policyService.getPolicyById(booking.policyVersionId);
       const refundAmount = policyService.calculateRefund(
         booking.totalPrice,
         new Date(),
-        booking.createdAt,
+        booking.startDate,
         policy
       );
 
       await bookingService.updateBookingStatus(req.params.id, 'cancelled');
 
-      // Log refund if any
       if (refundAmount > 0) {
-        await query(
-          `INSERT INTO ledger_entries (booking_id, entry_type, amount, created_at)
-           VALUES ($1, $2, $3, CURRENT_TIMESTAMP)`,
-          [req.params.id, 'refund', refundAmount]
-        );
+        await ledgerService.recordLedgerEntry({
+          bookingId: booking.id,
+          userId: booking.renterId,
+          entryType: 'refund',
+          amount: refundAmount,
+          idempotencyKey: refundIdempotencyKey,
+        });
+      }
+
+      // Release any held deposit back to the renter — the rental never
+      // happened (or was cut short), so nothing can be charged against it.
+      const depositHeld = await ledgerService.getLedgerEntryByIdempotencyKey(`deposit_hold:${booking.id}`);
+      if (depositHeld) {
+        await ledgerService.recordLedgerEntry({
+          bookingId: booking.id,
+          userId: booking.renterId,
+          entryType: 'deposit_release',
+          amount: depositHeld.amount,
+          idempotencyKey: `deposit_release:${booking.id}`,
+        });
       }
 
       res.json({
@@ -376,6 +464,13 @@ export function createApp() {
         inspectionType: z.enum(['intake', 'outbound', 'return']),
         photos: z.array(z.string().url()).min(1),
         inspectorId: z.string().uuid().optional(),
+        status: z.enum(['approved', 'rejected']).default('approved'),
+        damageClaim: z
+          .object({
+            damageType: z.string().min(1),
+            amount: z.number().positive(),
+          })
+          .optional(),
       });
 
       const parsed = schema.parse(req.body);
@@ -397,13 +492,27 @@ export function createApp() {
         await inspectionService.uploadInspectionPhoto(inspection.id, photoUrl);
       }
 
-      // Mark inspection as completed
-      await inspectionService.completeInspection(inspection.id, 'approved');
+      // Mark inspection as completed/approved/rejected
+      await inspectionService.completeInspection(inspection.id, parsed.status);
+
+      // A rejected inspection with a reported damage opens a claim and moves
+      // the booking into claim_resolving, blocking /complete until resolved.
+      let claim = null;
+      if (parsed.status === 'rejected' && parsed.damageClaim) {
+        claim = await claimService.createClaim(
+          parsed.bookingId,
+          parsed.damageClaim.damageType,
+          parsed.damageClaim.amount
+        );
+        await bookingService.updateBookingStatus(parsed.bookingId, 'claim_resolving');
+      }
 
       res.status(201).json({
         success: true,
         inspectionId: inspection.id,
         photosCount: parsed.photos.length,
+        status: parsed.status,
+        claim,
       });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -442,18 +551,76 @@ export function createApp() {
         return res.status(404).json({ error: 'Booking not found' });
       }
 
+      if (booking.status === 'completed') {
+        const existingSettlement = await settlementService.getSettlementByBooking(booking.id);
+        return res.json({ success: true, settlement: existingSettlement, message: 'Booking already completed' });
+      }
+
+      if (booking.status === 'cancelled') {
+        return res.status(409).json({ error: 'Cannot complete a cancelled booking' });
+      }
+
       // Check if inspection is done
       const inspections = await inspectionService.getBookingInspections(req.params.id);
       if (inspections.length === 0) {
         return res.status(400).json({ error: 'Inspection photos required before completing' });
       }
 
-      // Update booking status
+      // Required by TRD AC#8: settlement must never run while a damage claim
+      // is unresolved.
+      const pendingClaims = await claimService.getPendingClaimsForBooking(req.params.id);
+      if (pendingClaims.length > 0) {
+        return res.status(409).json({
+          error: 'Cannot complete booking while damage claims are unresolved',
+          pendingClaims,
+        });
+      }
+
+      const carrier = await carrierService.getCarrierById(booking.carrierId);
+      if (!carrier) {
+        return res.status(500).json({ error: 'Carrier for booking not found' });
+      }
+
       await bookingService.updateBookingStatus(req.params.id, 'completed');
 
-      // Calculate settlement
+      // Calculate + persist settlement (idempotent via settlements.booking_id
+      // UNIQUE constraint)
       const policy = await policyService.getPolicyById(booking.policyVersionId);
-      const settlement = policyService.calculateSettlement(booking.totalPrice, policy);
+      const { platformFee, providerPayout } = policyService.calculateSettlement(booking.totalPrice, policy);
+      const settlement = await settlementService.createSettlement(
+        carrier.providerId,
+        booking.id,
+        booking.totalPrice,
+        platformFee,
+        providerPayout
+      );
+
+      // Release the deposit minus any approved damage charges (floored at 0).
+      const ledgerEntries = await ledgerService.getLedgerEntriesForBooking(booking.id);
+      const depositHeld = ledgerEntries.find((entry) => entry.entryType === 'deposit_hold');
+      const damageCharged = ledgerEntries
+        .filter((entry) => entry.entryType === 'damage_charge')
+        .reduce((sum, entry) => sum + entry.amount, 0);
+      if (depositHeld) {
+        const releaseAmount = Math.max(0, depositHeld.amount - damageCharged);
+        if (releaseAmount > 0) {
+          await ledgerService.recordLedgerEntry({
+            bookingId: booking.id,
+            userId: booking.renterId,
+            entryType: 'deposit_release',
+            amount: releaseAmount,
+            idempotencyKey: `deposit_release:${booking.id}`,
+          });
+        }
+      }
+
+      // Record the logistics cost for the (informational) contribution-profit
+      // KPI — never used to gate settlement itself.
+      await costService.recordCostEntry(
+        booking.id,
+        'logistics',
+        policy.roundTripShipping * PLATFORM_LOGISTICS_COST_RATIO
+      );
 
       res.json({
         success: true,
@@ -476,16 +643,41 @@ export function createApp() {
 
       const parsed = schema.parse(req.body);
 
-      await query(
-        `UPDATE damage_claims 
-         SET status = $1, resolution_notes = $2, resolved_at = CURRENT_TIMESTAMP 
-         WHERE id = $3`,
-        [parsed.status, parsed.resolutionNotes, req.params.id]
-      );
+      const claim = await claimService.getClaimById(req.params.id);
+      if (!claim) {
+        return res.status(404).json({ error: 'Claim not found' });
+      }
+
+      if (claim.status !== 'pending') {
+        return res.json({ success: true, message: 'Claim already resolved', claim });
+      }
+
+      const booking = await bookingService.getBookingById(claim.bookingId);
+      const resolved = await claimService.resolveClaim(req.params.id, parsed.status, parsed.resolutionNotes);
+
+      if (parsed.status === 'approved' && resolved) {
+        await ledgerService.recordLedgerEntry({
+          bookingId: resolved.bookingId,
+          userId: booking?.renterId,
+          entryType: 'damage_charge',
+          amount: resolved.amount,
+          idempotencyKey: `damage_charge:${resolved.id}`,
+        });
+      }
+
+      // Once every claim on the booking is resolved, move it back out of
+      // claim_resolving so /complete can be retried.
+      if (booking && booking.status === 'claim_resolving') {
+        const stillPending = await claimService.getPendingClaimsForBooking(claim.bookingId);
+        if (stillPending.length === 0) {
+          await bookingService.updateBookingStatus(claim.bookingId, 'inspection_pending');
+        }
+      }
 
       res.json({
         success: true,
         message: 'Claim resolved',
+        claim: resolved,
       });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -513,9 +705,9 @@ export function createApp() {
       const parsed = schema.parse(req.body);
 
       await query(
-        `INSERT INTO funnel_events (user_id, event_type, metadata, created_at)
-         VALUES ($1, $2, $3, CURRENT_TIMESTAMP)`,
-        [parsed.userId, parsed.eventType, JSON.stringify(parsed.metadata || {})]
+        `INSERT INTO funnel_events (user_id, session_id, event_type, metadata, created_at)
+         VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)`,
+        [parsed.userId, parsed.sessionId, parsed.eventType, JSON.stringify(parsed.metadata || {})]
       );
 
       res.status(201).json({ success: true });
@@ -532,69 +724,119 @@ export function createApp() {
   // WEBHOOK ENDPOINTS
   // ============================================================
 
-  // POST /webhooks/payments - Payment status webhook
+  // POST /webhooks/payments - Signed payment provider webhook. Requires a
+  // valid X-Payment-Signature header (HMAC over the raw body); this is the
+  // same verification + handler code the internal mock-provider loop
+  // (see POST /bookings/:id/authorize-payment) exercises.
   app.post('/webhooks/payments', async (req, res) => {
     try {
-      const schema = z.object({
-        bookingId: z.string().uuid(),
-        status: z.enum(['authorized', 'completed', 'failed']),
-      });
-
-      const parsed = schema.parse(req.body);
-      const booking = await bookingService.getBookingById(parsed.bookingId);
-
-      if (!booking) {
-        return res.status(404).json({ error: 'Booking not found' });
-      }
-
-      if (parsed.status === 'completed') {
-        await bookingService.updateBookingStatus(parsed.bookingId, 'confirmed');
-      }
-
-      res.json({ success: true });
+      const rawBody = (req as express.Request & { rawBody?: string }).rawBody ?? JSON.stringify(req.body);
+      const result = await paymentService.processPaymentWebhook(rawBody, req.header('X-Payment-Signature'));
+      res.json({ success: true, ...result });
     } catch (error) {
+      if (error instanceof WebhookSignatureError) {
+        return res.status(error.statusCode).json({ error: error.message });
+      }
       console.error('Error processing payment webhook:', error);
       res.status(500).json({ error: 'Webhook processing failed' });
     }
   });
 
-  // POST /webhooks/delivery - Delivery status webhook
+  // POST /webhooks/delivery - Signed delivery-carrier webhook. Requires a
+  // valid X-Delivery-Signature header (HMAC over the raw body).
   app.post('/webhooks/delivery', async (req, res) => {
+    try {
+      const rawBody = (req as express.Request & { rawBody?: string }).rawBody ?? JSON.stringify(req.body);
+      const result = await deliveryService.processDeliveryWebhook(rawBody, req.header('X-Delivery-Signature'));
+      res.json({ success: true, ...result });
+    } catch (error) {
+      if (error instanceof WebhookSignatureError) {
+        return res.status(error.statusCode).json({ error: error.message });
+      }
+      console.error('Error processing delivery webhook:', error);
+      res.status(500).json({ error: 'Webhook processing failed' });
+    }
+  });
+
+  // ============================================================
+  // OPS ENDPOINTS (demo/local delivery simulation + photo uploads)
+  // ============================================================
+
+  // POST /ops/delivery-events - Simulates a carrier delivery event for local
+  // dev/demo/E2E use, since no real logistics provider is integrated. The
+  // server signs the event itself (with the same secret /webhooks/delivery
+  // verifies against) and routes it through the real signature-verification
+  // handler, so this is a trigger for the real pipeline, not a bypass of it.
+  app.post('/ops/delivery-events', async (req, res) => {
     try {
       const schema = z.object({
         bookingId: z.string().uuid(),
         direction: z.enum(['outbound', 'return']),
         status: z.enum(['in_transit', 'arrived', 'delayed']),
       });
-
       const parsed = schema.parse(req.body);
-      const booking = await bookingService.getBookingById(parsed.bookingId);
 
+      const booking = await bookingService.getBookingById(parsed.bookingId);
       if (!booking) {
         return res.status(404).json({ error: 'Booking not found' });
       }
 
-      await bookingService.updateDeliveryStatus(parsed.bookingId, parsed.status);
+      const result = await deliveryService.simulateDeliveryEvent(parsed.bookingId, parsed.direction, parsed.status);
+      res.json({ success: true, ...result });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Validation failed', details: error.issues });
+      }
+      console.error('Error simulating delivery event:', error);
+      res.status(500).json({ error: 'Failed to simulate delivery event' });
+    }
+  });
 
-      // Update booking status based on delivery direction
-      if (parsed.direction === 'outbound') {
-        if (parsed.status === 'in_transit') {
-          await bookingService.updateBookingStatus(parsed.bookingId, 'outbound_in_transit');
-        } else if (parsed.status === 'arrived') {
-          await bookingService.updateBookingStatus(parsed.bookingId, 'in_use');
-        }
-      } else if (parsed.direction === 'return') {
-        if (parsed.status === 'in_transit') {
-          await bookingService.updateBookingStatus(parsed.bookingId, 'return_in_transit');
-        } else if (parsed.status === 'arrived') {
-          await bookingService.updateBookingStatus(parsed.bookingId, 'inspection_pending');
-        }
+  // POST /uploads/sign - Issues a short-lived upload target for a photo
+  // (intake or inspection). Prefers a real Azure Blob SAS URL when
+  // AZURE_STORAGE_CONNECTION_STRING is configured; otherwise falls back to a
+  // local-disk adapter with the same sign -> upload -> blobUrl contract.
+  app.post('/uploads/sign', (req, res) => {
+    try {
+      const schema = z.object({
+        category: z.enum(['intake', 'inspection']),
+        fileName: z.string().min(1),
+      });
+      const parsed = schema.parse(req.body);
+      const signResult = storageService.signUpload(parsed.category, parsed.fileName);
+      res.json(signResult);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Validation failed', details: error.issues });
+      }
+      console.error('Error signing upload:', error);
+      res.status(500).json({ error: 'Failed to sign upload' });
+    }
+  });
+
+  // POST /uploads/local/:token - Local-disk fallback receiver used only when
+  // Azure Blob Storage isn't configured; the client PUTs/POSTs here instead
+  // of directly to Azure using the token issued by /uploads/sign.
+  app.post('/uploads/local/:token', localUpload.single('file'), (req, res) => {
+    try {
+      const ticket = storageService.consumeLocalUploadTicket(String(req.params.token));
+      if (!ticket) {
+        return res.status(400).json({ error: 'Upload token is invalid or expired' });
+      }
+      const file = (req as express.Request & { file?: Express.Multer.File }).file;
+      if (!file) {
+        return res.status(400).json({ error: 'No file uploaded' });
       }
 
-      res.json({ success: true });
+      const destPath = path.join(storageService.getLocalUploadDir(), ticket.fileName);
+      fs.mkdirSync(path.dirname(destPath), { recursive: true });
+      fs.writeFileSync(destPath, file.buffer);
+
+      const publicBase = process.env.PUBLIC_API_URL || 'http://localhost:3001';
+      res.json({ success: true, blobUrl: `${publicBase}/uploads/files/${ticket.fileName}` });
     } catch (error) {
-      console.error('Error processing delivery webhook:', error);
-      res.status(500).json({ error: 'Webhook processing failed' });
+      console.error('Error receiving local upload:', error);
+      res.status(500).json({ error: 'Failed to store upload' });
     }
   });
 
@@ -630,6 +872,19 @@ export function createApp() {
     } catch (error) {
       console.error('Error fetching metrics:', error);
       res.status(500).json({ error: 'Failed to fetch metrics' });
+    }
+  });
+
+  // GET /metrics/kpi - Aggregated KPI snapshot: OTA funnel conversion,
+  // provider opt-in rate, booking completion rate, dispute rate, and
+  // (informational) per-booking contribution profit.
+  app.get('/metrics/kpi', async (_req, res) => {
+    try {
+      const snapshot = await metricsService.getKpiSnapshot();
+      res.json(snapshot);
+    } catch (error) {
+      console.error('Error fetching KPI snapshot:', error);
+      res.status(500).json({ error: 'Failed to fetch KPI snapshot' });
     }
   });
 
