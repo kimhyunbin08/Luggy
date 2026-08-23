@@ -161,7 +161,9 @@ docker run --rm -e DATABASE_URL="$DB_URL" luggy-api node -e "
    .then(()=>{console.log('OK');return c.end();});
 "
 
-# 4) 기본 정책 버전(v1.0) 시드
+# 4) 기본 정책 버전(v1.0) + 데모 유저(renter/provider) 시드
+# 웹 프런트가 하드코딩한 MOCK_RENTER_ID/MOCK_PROVIDER_ID(apps/web/src/main.ts)에
+# 대응하는 users 행이 없으면 캐리어/예약 생성 시 FK 위반 500 에러가 발생합니다.
 docker run --rm -e DATABASE_URL="$DB_URL" luggy-api node dist/scripts/init-db.js
 
 # 5) 임시 방화벽 규칙 제거 (필수 — 열어둔 채로 두지 말 것)
