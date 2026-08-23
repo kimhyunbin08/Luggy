@@ -2,8 +2,11 @@ import "./styles.css";
 import { shouldDisableBookingCTA } from "./funnel.js";
 
 type Size = "carry_on" | "medium";
-type Tab = "rent" | "provider";
+type Tab = "rent" | "provider" | "ops";
 type Step = 1 | 2 | 3;
+type DeliveryDirection = "outbound" | "return";
+type DeliveryStatus = "in_transit" | "arrived" | "delayed";
+type InspectionType = "intake" | "outbound" | "return";
 
 type Carrier = {
   id: string;
@@ -31,6 +34,93 @@ type BookingRequest = {
   startDate: string;
   endDate: string;
   idempotencyKey?: string;
+  sessionId?: string;
+};
+
+type LedgerEntry = {
+  id: string;
+  entryType: string;
+  amount: number;
+  createdAt: string;
+};
+
+type DeliveryEvent = {
+  id: string;
+  direction: DeliveryDirection;
+  status: string;
+  createdAt: string;
+};
+
+type InspectionRecord = {
+  id: string;
+  inspectionType: string;
+  status: string;
+  createdAt: string;
+};
+
+type ClaimRecord = {
+  id: string;
+  bookingId: string;
+  damageType: string;
+  amount: number;
+  status: string;
+  resolutionNotes?: string;
+};
+
+type SettlementRecord = {
+  id: string;
+  grossAmount: number;
+  platformFee: number;
+  providerPayout: number;
+  status: string;
+} | null;
+
+type PaymentRecord = {
+  id: string;
+  amount: number;
+  depositAmount?: number;
+  status: string;
+  provider?: string;
+} | null;
+
+type OpsBooking = {
+  id: string;
+  status: string;
+  deliveryStatus: string;
+  totalPrice: number;
+  startDate: string;
+  endDate: string;
+  renterId: string;
+  carrierId: string;
+  ledgerEntries: LedgerEntry[];
+  inspections: InspectionRecord[];
+  claims: ClaimRecord[];
+  settlement: SettlementRecord;
+  payment: PaymentRecord;
+  deliveryTimeline: DeliveryEvent[];
+};
+
+type KpiSnapshot = {
+  funnel: {
+    landing: number;
+    search: number;
+    detail: number;
+    checkout: number;
+    paid: number;
+    conversion: {
+      landingToSearch: number;
+      searchToDetail: number;
+      detailToCheckout: number;
+      checkoutToPaid: number;
+      landingToPaid: number;
+    };
+  };
+  bookingsByStatus: Record<string, number>;
+  providerOptInRate: number;
+  bookingCompletionRate: number;
+  disputeRate: number;
+  avgContributionProfitPerBooking: number | null;
+  generatedAt: string;
 };
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
@@ -63,13 +153,33 @@ const state = {
   notice: "",
   bookingId: "",
   paymentAuthorized: false,
+  bookingCancelled: false,
+  cancelRefundAmount: null as number | null,
   providerSize: "carry_on" as Size,
   providerBrand: "",
   providerModel: "",
   providerBasePrice: 0,
   providerPhotoUrl: "",
+  providerPhotoUploading: false,
   providerOptIn: true,
   providerCarriers: [] as Carrier[],
+
+  // Ops console (booking lifecycle management + KPI dashboard)
+  opsBookingIdInput: "",
+  opsBooking: null as OpsBooking | null,
+  opsKpi: null as KpiSnapshot | null,
+  opsLoading: false,
+  opsError: "",
+  opsNotice: "",
+  opsDeliveryDirection: "outbound" as DeliveryDirection,
+  opsDeliveryStatus: "in_transit" as DeliveryStatus,
+  opsInspectionType: "return" as InspectionType,
+  opsInspectionApproved: true,
+  opsDamageType: "",
+  opsDamageAmount: 0,
+  opsInspectionPhotoUrl: "",
+  opsInspectionUploading: false,
+  opsResolveNotes: "",
 };
 
 function futureDate(offset: number): string {
@@ -204,6 +314,8 @@ async function searchCarriers(): Promise<void> {
   state.step = 1;
   state.bookingId = "";
   state.paymentAuthorized = false;
+  state.bookingCancelled = false;
+  state.cancelRefundAmount = null;
   render();
 
   try {
@@ -256,6 +368,8 @@ async function createBooking(): Promise<void> {
   state.notice = "";
   state.bookingId = "";
   state.paymentAuthorized = false;
+  state.bookingCancelled = false;
+  state.cancelRefundAmount = null;
   render();
 
   try {
@@ -265,6 +379,7 @@ async function createBooking(): Promise<void> {
       startDate: state.startDate,
       endDate: state.endDate,
       idempotencyKey: `booking_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      sessionId,
     };
     const response = await fetch(`${API_URL}/bookings`, {
       method: "POST",
@@ -315,6 +430,78 @@ async function authorizePayment(): Promise<void> {
     state.loading = false;
     render();
   }
+}
+
+async function cancelCurrentBooking(): Promise<void> {
+  if (!state.bookingId || state.loading || state.bookingCancelled) return;
+
+  state.loading = true;
+  state.error = "";
+  render();
+
+  try {
+    const response = await fetch(`${API_URL}/bookings/${state.bookingId}/cancel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    if (!response.ok) throw await responseError(response, "예약 취소에 실패했습니다.");
+
+    const result = await response.json();
+    state.bookingCancelled = true;
+    state.cancelRefundAmount = Number(result.refundAmount || 0);
+    state.notice = `예약이 취소되었습니다. 환불 예정액 ${currency(state.cancelRefundAmount)}`;
+    void logFunnelEvent("booking_cancelled", {
+      bookingId: state.bookingId,
+      refundAmount: state.cancelRefundAmount,
+    });
+  } catch (error) {
+    state.error = `예약 취소 실패: ${error instanceof Error ? error.message : String(error)}`;
+    console.error("[Cancel] Error:", error);
+  } finally {
+    state.loading = false;
+    render();
+  }
+}
+
+/**
+ * Uploads a photo through the real sign -> transfer -> blobUrl flow. Works
+ * against either transport /uploads/sign issues: a direct HTTPS PUT to an
+ * Azure Blob SAS URL when AZURE_STORAGE_CONNECTION_STRING is configured on
+ * the API, or a multipart POST to our own API's local-disk fallback
+ * otherwise. The caller only ever sees the resulting blobUrl.
+ */
+async function uploadPhoto(file: File, category: "intake" | "inspection"): Promise<string> {
+  const signResponse = await fetch(`${API_URL}/uploads/sign`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ category, fileName: file.name || "photo.jpg" }),
+  });
+  if (!signResponse.ok) throw await responseError(signResponse, "업로드 서명 발급에 실패했습니다.");
+  const sign = await signResponse.json();
+
+  if (sign.mode === "azure-sas") {
+    const putResponse = await fetch(sign.uploadUrl, {
+      method: sign.uploadMethod || "PUT",
+      headers: {
+        "x-ms-blob-type": "BlockBlob",
+        "Content-Type": file.type || "application/octet-stream",
+      },
+      body: file,
+    });
+    if (!putResponse.ok) throw new Error("사진 업로드에 실패했습니다.");
+    return String(sign.blobUrl);
+  }
+
+  const formData = new FormData();
+  formData.append("file", file, file.name || "photo.jpg");
+  const uploadResponse = await fetch(sign.uploadUrl, {
+    method: sign.uploadMethod || "POST",
+    body: formData,
+  });
+  if (!uploadResponse.ok) throw await responseError(uploadResponse, "사진 업로드에 실패했습니다.");
+  const uploaded = await uploadResponse.json();
+  return String(uploaded.blobUrl);
 }
 
 async function registerCarrier(): Promise<void> {
@@ -557,6 +744,12 @@ function renderCheckout(selected: Carrier | undefined, rentalDays: number): stri
               <span class="success-icon" aria-hidden="true">✓</span>
               <div><strong>결제 승인 완료</strong><p>예약번호 <b>${escapeHtml(state.bookingId)}</b></p></div>
             </div>
+            ${
+              state.bookingCancelled
+                ? `<div class="alert alert--success" role="status"><span>✓</span>예약이 취소되었습니다. 환불 예정액 ${currency(state.cancelRefundAmount ?? 0)}</div>`
+                : `<button type="button" id="cancelBookingBtn" class="button button--ghost" ${state.loading ? "disabled" : ""}>${state.loading ? "처리 중..." : "예약 취소하기"}</button>
+                   <p class="checkout-disclaimer">취소 시 정책에 따라 결제 48시간 전 100%, 24시간 전 50%, 이후 0% 환불됩니다.</p>`
+            }
           `
               : state.bookingId
                 ? `
@@ -608,13 +801,13 @@ function renderProvider(): string {
           <label class="field">브랜드<input id="providerBrand" value="${escapeHtml(state.providerBrand)}" placeholder="Samsonite" /></label>
           <label class="field">모델명<input id="providerModel" value="${escapeHtml(state.providerModel)}" placeholder="C-Lite" /></label>
           <label class="field">기준가 (원)<input id="providerPrice" type="number" min="1" value="${state.providerBasePrice || ""}" placeholder="120000" /></label>
-          <label class="upload-field" for="providerPhoto">
-            <span class="upload-icon" aria-hidden="true">↑</span>
-            <span><strong>${state.providerPhotoUrl ? "입고 사진 선택됨" : "입고 사진 추가"}</strong><small>${state.providerPhotoUrl ? "검수 기록으로 저장됩니다." : "최소 1장의 상태 사진을 권장합니다."}</small></span>
-            <input type="file" id="providerPhoto" accept="image/*" />
+          <label class="upload-field ${state.providerPhotoUploading ? "is-uploading" : ""}" for="providerPhoto">
+            <span class="upload-icon" aria-hidden="true">${state.providerPhotoUploading ? "…" : "↑"}</span>
+            <span><strong>${state.providerPhotoUploading ? "업로드 중..." : state.providerPhotoUrl ? "입고 사진 업로드 완료" : "입고 사진 추가"}</strong><small>${state.providerPhotoUrl ? "검수 기록으로 저장됩니다." : "최소 1장의 상태 사진을 권장합니다."}</small></span>
+            <input type="file" id="providerPhoto" accept="image/*" ${state.providerPhotoUploading ? "disabled" : ""} />
           </label>
           <label class="check-field"><input type="checkbox" id="providerOptIn" ${state.providerOptIn ? "checked" : ""} /><span><strong>렌탈 허용 Opt-in</strong><small>허용한 캐리어만 Renter 검색에 노출됩니다.</small></span></label>
-          <button type="button" id="registerBtn" class="button button--primary" ${state.loading ? "disabled" : ""}>${state.loading ? "등록 중..." : "등록하고 렌탈 허용하기"}</button>
+          <button type="button" id="registerBtn" class="button button--primary" ${state.loading || state.providerPhotoUploading ? "disabled" : ""}>${state.loading ? "등록 중..." : "등록하고 렌탈 허용하기"}</button>
         </div>
       </section>
       <section class="provider-inventory">
@@ -761,6 +954,8 @@ function bindEvents(): void {
       state.step = 1;
       state.bookingId = "";
       state.paymentAuthorized = false;
+      state.bookingCancelled = false;
+      state.cancelRefundAmount = null;
       state.error = "";
       void logFunnelEvent("detail_view", { carrierId: state.selectedCarrierId });
       render();
@@ -809,6 +1004,9 @@ function bindEvents(): void {
   document.querySelector<HTMLButtonElement>("#payAuthorize")?.addEventListener("click", () => {
     void authorizePayment();
   });
+  document.querySelector<HTMLButtonElement>("#cancelBookingBtn")?.addEventListener("click", () => {
+    void cancelCurrentBooking();
+  });
 
   document.querySelector<HTMLSelectElement>("#providerSize")?.addEventListener("change", (event) => {
     state.providerSize = (event.target as HTMLSelectElement).value as Size;
@@ -823,14 +1021,24 @@ function bindEvents(): void {
     state.providerBasePrice = Number((event.target as HTMLInputElement).value) || 0;
   });
   document.querySelector<HTMLInputElement>("#providerPhoto")?.addEventListener("change", (event) => {
-    const file = (event.target as HTMLInputElement).files?.[0];
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.addEventListener("load", () => {
-      state.providerPhotoUrl = String(reader.result || "");
-      render();
-    });
-    reader.readAsDataURL(file);
+    state.providerPhotoUploading = true;
+    state.error = "";
+    render();
+    uploadPhoto(file, "intake")
+      .then((blobUrl) => {
+        state.providerPhotoUrl = blobUrl;
+      })
+      .catch((error) => {
+        state.error = `사진 업로드 실패: ${error instanceof Error ? error.message : String(error)}`;
+        console.error("[Upload] Error:", error);
+      })
+      .finally(() => {
+        state.providerPhotoUploading = false;
+        render();
+      });
   });
   document.querySelector<HTMLInputElement>("#providerOptIn")?.addEventListener("change", (event) => {
     state.providerOptIn = (event.target as HTMLInputElement).checked;
