@@ -427,6 +427,8 @@ input[type="file"] {
 .checkout-panel {
   position: sticky;
   top: 18px;
+  max-height: calc(100vh - 36px);
+  overflow-y: auto;
 }
 
 .section-head {
@@ -1306,6 +1308,239 @@ input[type="file"] {
   font-weight: 850;
 }
 
+/* ---- Ops console -------------------------------------------------- */
+
+.button--ghost {
+  border-color: var(--border);
+  background: transparent;
+  color: var(--deep-rust);
+}
+
+.button--ghost:hover:not(:disabled) {
+  background: var(--surface-soft);
+}
+
+.button--small {
+  width: auto;
+  min-height: 38px;
+  padding: 0 13px;
+  font-size: 12px;
+}
+
+.ops-shell {
+  display: grid;
+  gap: 16px;
+}
+
+.ops-panel {
+  padding: clamp(18px, 3vw, 26px);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-panel);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-card);
+}
+
+.ops-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.kpi-card {
+  display: grid;
+  gap: 5px;
+  padding: 13px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.kpi-label {
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.kpi-card strong {
+  color: var(--deep-rust);
+  font-size: 20px;
+}
+
+.kpi-card small {
+  color: var(--ink-soft);
+  font-size: 10px;
+}
+
+.ops-status-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.status-chip b {
+  color: var(--deep-rust);
+}
+
+.ops-generated-at {
+  margin: 12px 2px 0;
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.ops-empty-note {
+  margin: 6px 2px;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.ops-lookup {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.ops-lookup input {
+  flex: 1;
+}
+
+.ops-lookup .button {
+  width: auto;
+  padding: 0 20px;
+}
+
+.ops-actions {
+  display: flex;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.ops-actions .button {
+  width: auto;
+  padding: 0 18px;
+}
+
+.ops-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 6px;
+}
+
+.ops-block {
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.ops-block h3 {
+  margin: 0 0 10px;
+  color: var(--deep-rust);
+  font-size: 13px;
+}
+
+.ledger-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.ledger-table td {
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--foreground);
+}
+
+.ledger-table td:last-child {
+  color: var(--ink-soft);
+  text-align: right;
+}
+
+.timeline-list {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.timeline-list li {
+  padding: 8px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  background: var(--surface-raised);
+  color: var(--ink-soft);
+}
+
+.timeline-list li b {
+  color: var(--deep-rust);
+}
+
+.claim-item {
+  display: grid;
+  gap: 8px;
+}
+
+.ops-form-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ops-form-row select,
+.ops-form-row input {
+  flex: 1;
+  min-width: 110px;
+}
+
+.ops-inspection-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ops-radio-row {
+  display: flex;
+  gap: 16px;
+  padding: 4px 2px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ops-radio-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ops-radio-row input {
+  width: 16px;
+  min-height: 16px;
+  accent-color: var(--primary);
+}
+
+.upload-field.is-uploading {
+  opacity: 0.7;
+  cursor: wait;
+}
+
 @media (max-width: 1024px) {
   .hero,
   .provider-shell {
@@ -1322,6 +1557,12 @@ input[type="file"] {
 
   .checkout-panel {
     position: static;
+    max-height: none;
+    overflow-y: visible;
+  }
+
+  .ops-grid {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -1367,6 +1608,16 @@ input[type="file"] {
   .search-grid,
   .provider-form {
     grid-template-columns: 1fr;
+  }
+
+  .ops-lookup,
+  .ops-actions {
+    flex-direction: column;
+  }
+
+  .ops-lookup .button,
+  .ops-actions .button {
+    width: 100%;
   }
 
   .search-panel-head {
