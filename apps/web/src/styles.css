@@ -1683,6 +1683,293 @@ input[type="file"] {
   }
 }
 
+/* ---- 동네 직거래 (P2P Direct Deal) — prd.md §19 / trd.md §16 -------------- */
+
+.p2p-shell {
+  display: grid;
+  gap: 18px;
+  margin-top: 4px;
+}
+
+.p2p-intro {
+  padding: clamp(22px, 4vw, 38px);
+  border-radius: var(--radius-panel);
+  background: var(--deep-rust);
+  box-shadow: var(--shadow-panel);
+}
+
+.p2p-intro .eyebrow {
+  color: #e9a48f;
+}
+
+.p2p-intro h1 {
+  margin: 0;
+  color: var(--primary-foreground);
+  font-size: clamp(28px, 4vw, 42px);
+  font-weight: 800;
+  letter-spacing: -0.05em;
+  line-height: 1.08;
+}
+
+.p2p-intro h1 em {
+  color: #f0b49f;
+  font-style: normal;
+}
+
+.p2p-intro > p:not(.eyebrow) {
+  max-width: 560px;
+  margin: 14px 0 0;
+  color: rgba(255, 250, 244, 0.72);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.p2p-status-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.p2p-subnav {
+  display: inline-flex;
+  width: fit-content;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  background: rgba(248, 244, 238, 0.74);
+}
+
+.p2p-subnav .nav-btn {
+  color: var(--deep-rust);
+}
+
+.p2p-panel {
+  padding: clamp(18px, 3vw, 26px);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-panel);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-card);
+}
+
+.p2p-auth-card {
+  display: grid;
+  gap: 14px;
+  max-width: 420px;
+  margin: 0 auto;
+}
+
+.p2p-auth-note {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.p2p-reg-tabs {
+  display: inline-flex;
+  width: fit-content;
+  gap: 4px;
+  margin-bottom: 14px;
+  padding: 4px;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.tab-pill {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.tab-pill:hover,
+.tab-pill.is-active {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.p2p-map {
+  width: 100%;
+  height: 320px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-card);
+  background: var(--surface-soft);
+}
+
+.p2p-carrier-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.p2p-carrier-card {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+
+.p2p-carrier-card.is-selected {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
+.p2p-carrier-media {
+  height: 120px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--surface-soft);
+}
+
+.p2p-carrier-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.p2p-carrier-body {
+  display: grid;
+  gap: 3px;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.p2p-carrier-body strong {
+  color: var(--deep-rust);
+  font-size: 14px;
+}
+
+.p2p-carrier-price {
+  color: var(--primary);
+  font-weight: 850;
+}
+
+.p2p-request-panel {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.p2p-chat-thread {
+  display: grid;
+  gap: 8px;
+  max-height: 320px;
+  margin-bottom: 10px;
+  padding: 12px;
+  overflow-y: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.p2p-chat-bubble {
+  width: fit-content;
+  max-width: 80%;
+  padding: 8px 12px;
+  border-radius: 14px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.p2p-chat-bubble.is-theirs {
+  border: 1px solid var(--border-soft);
+  background: var(--surface-raised);
+  color: var(--foreground);
+}
+
+.p2p-chat-bubble.is-mine {
+  margin-left: auto;
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.p2p-chat-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.p2p-chat-input-row input {
+  flex: 1;
+}
+
+.p2p-requests {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.6fr) minmax(0, 1.4fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.p2p-deal-list {
+  display: grid;
+  gap: 8px;
+}
+
+.p2p-deal-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink-soft);
+  font-size: 12px;
+  text-align: left;
+}
+
+.p2p-deal-item.is-active {
+  border-color: var(--primary);
+  background: var(--surface-raised);
+}
+
+.p2p-chat-panel {
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.p2p-deal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+@media (max-width: 680px) {
+  .p2p-requests {
+    grid-template-columns: 1fr;
+  }
+
+  .p2p-carrier-grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  }
+
+  .p2p-map {
+    height: 220px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

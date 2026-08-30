@@ -16,6 +16,12 @@ param paymentWebhookSecret string
 @secure()
 param deliveryWebhookSecret string
 
+@secure()
+param authTokenSecret string
+
+@description('Region for the Azure OpenAI resource. Defaults to the main location, but can be overridden if gpt-4o-mini is unavailable there.')
+param openAiLocation string = location
+
 var postgresAdminLogin = 'luggyadmin'
 var postgresDatabaseName = 'luggy'
 var apiAppName = 'ca-api-${resourceToken}'
@@ -125,6 +131,39 @@ resource inspectionContainer 'Microsoft.Storage/storageAccounts/blobServices/con
 
 var storageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storage.name};AccountKey=${storage.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
 
+// Powers the '동네 직거래' AI carrier-registration features (ai.service.ts):
+// photo -> brand/model/size/condition guess, and the conversational
+// registration chatbot. Vision-capable chat deployment.
+resource openAi 'Microsoft.CognitiveServices/accounts@2025-06-01' = {
+  name: 'aoai-${resourceToken}'
+  location: openAiLocation
+  tags: tags
+  kind: 'OpenAI'
+  sku: {
+    name: 'S0'
+  }
+  properties: {
+    customSubDomainName: 'aoai-${resourceToken}'
+    publicNetworkAccess: 'Enabled'
+  }
+}
+
+resource openAiDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = {
+  parent: openAi
+  name: 'gpt-4o-mini'
+  sku: {
+    name: 'GlobalStandard'
+    capacity: 10
+  }
+  properties: {
+    model: {
+      format: 'OpenAI'
+      name: 'gpt-4o-mini'
+      version: '2024-07-18'
+    }
+  }
+}
+
 resource postgresServer 'Microsoft.DBforPostgreSQL/flexibleServers@2025-08-01' = {
   name: 'pg-${resourceToken}'
   location: location
@@ -206,6 +245,8 @@ resource apiApp 'Microsoft.App/containerApps@2025-07-01' = {
         { name: 'payment-webhook-secret', value: paymentWebhookSecret }
         { name: 'delivery-webhook-secret', value: deliveryWebhookSecret }
         { name: 'storage-connection-string', value: storageConnectionString }
+        { name: 'auth-token-secret', value: authTokenSecret }
+        { name: 'azure-openai-api-key', value: openAi.listKeys().key1 }
       ]
     }
     template: {
@@ -230,6 +271,11 @@ resource apiApp 'Microsoft.App/containerApps@2025-07-01' = {
             { name: 'DELIVERY_WEBHOOK_SECRET', secretRef: 'delivery-webhook-secret' }
             { name: 'AZURE_STORAGE_CONNECTION_STRING', secretRef: 'storage-connection-string' }
             { name: 'PLATFORM_LOGISTICS_COST_RATIO', value: '0.7' }
+            { name: 'AUTH_TOKEN_SECRET', secretRef: 'auth-token-secret' }
+            { name: 'AZURE_OPENAI_ENDPOINT', value: openAi.properties.endpoint }
+            { name: 'AZURE_OPENAI_API_KEY', secretRef: 'azure-openai-api-key' }
+            { name: 'AZURE_OPENAI_DEPLOYMENT', value: 'gpt-4o-mini' }
+            { name: 'AZURE_OPENAI_API_VERSION', value: '2024-06-01' }
           ]
           probes: [
             {

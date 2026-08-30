@@ -16,6 +16,9 @@
     },
     "deliveryWebhookSecret": {
       "value": "${DELIVERY_WEBHOOK_SECRET}"
+    },
+    "authTokenSecret": {
+      "value": "${AUTH_TOKEN_SECRET}"
     }
   }
 }

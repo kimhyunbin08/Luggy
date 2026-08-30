@@ -121,11 +121,32 @@ azd env new staging --location koreacentral
 azd env set POSTGRES_ADMIN_PASSWORD "<3종 이상 문자 조합, 8자+>"
 azd env set PAYMENT_WEBHOOK_SECRET "$(openssl rand -hex 32)"
 azd env set DELIVERY_WEBHOOK_SECRET "$(openssl rand -hex 32)"
+azd env set AUTH_TOKEN_SECRET "$(openssl rand -hex 32)"
 
 azd env new production --location koreacentral
 azd env set POSTGRES_ADMIN_PASSWORD "<staging과 다른 값>" --environment production
 azd env set PAYMENT_WEBHOOK_SECRET "$(openssl rand -hex 32)" --environment production
 azd env set DELIVERY_WEBHOOK_SECRET "$(openssl rand -hex 32)" --environment production
+azd env set AUTH_TOKEN_SECRET "$(openssl rand -hex 32)" --environment production
+```
+
+> `AUTH_TOKEN_SECRET`은 동네 직거래(P2P) 로그인 세션 토큰 서명용입니다. `staging`/`production`에
+> 서로 다른 값을 설정하세요(웹훅 시크릿과 동일한 원칙).
+
+### Kakao Map / Azure OpenAI 키 설정 (동네 직거래 파일럿)
+
+캐리어 지도(Kakao Map)와 AI 등록(Azure OpenAI Vision/Chat) 기능을 쓰려면 아래 값도 환경별로
+설정해야 합니다. **둘 다 미설정 시 해당 기능만 graceful하게 비활성화**되고 나머지 앱은 정상
+동작합니다(지도는 "API 키 필요" 안내, AI 등록 API는 503).
+
+```bash
+# Kakao Developers(https://developers.kakao.com)에서 발급한 JavaScript 키.
+# 웹 빌드 시점에 정적 번들에 인라인되므로 "시크릿"이 아니라 빌드 인자로 취급합니다.
+azd env set VITE_KAKAO_MAP_KEY "<kakao-js-key>"
+azd env set VITE_KAKAO_MAP_KEY "<kakao-js-key>" --environment production
+
+# Azure OpenAI는 infra/resources.bicep이 리소스(aoai-*, gpt-4o-mini 배포)까지 프로비저닝합니다.
+# 별도 키 설정은 불필요하지만, `azd provision`이 유료 리소스를 실제로 생성한다는 점을 반드시 인지하세요.
 ```
 
 ### 배포
@@ -171,6 +192,97 @@ az postgres flexible-server firewall-rule delete -g rg-<env> -n "$PG_NAME" \
   --rule-name AllowMyIpTemp --yes
 ```
 
+### 스키마 변경(컬럼/인덱스 추가 등) 이후 재배포 시 주의사항
+
+**최초 배포 이후에는 위 3번 단계처럼 `schema.sql` 전체를 한 번에 `client.query(전체파일내용)`으로
+재실행하면 안 됩니다.** `pg` 드라이버는 세미콜론으로 구분된 여러 문장을 담은 하나의 쿼리 문자열을
+**암묵적 트랜잭션 하나로 묶어 실행**하므로, 파일 뒷부분에 있는 기존(`IF NOT EXISTS` 없는) `CREATE INDEX`
+문 중 하나라도 "already exists" 에러를 내면 — staging/production은 이미 최초 배포 때 해당 인덱스들을
+만들었으므로 반드시 그렇게 됩니다 — **그 앞에서 이미 성공한 문장(예: 새 컬럼 추가)까지 전부 롤백**되어,
+에러 메시지에는 전혀 안 나타난 컬럼이 조용히 추가되지 않은 채로 끝납니다. (`schema.sql`의 나머지
+`CREATE INDEX` 문들을 전부 `IF NOT EXISTS`로 바꾸는 일반적인 멱등성 정리는 이번 작업 범위 밖이라 하지
+않았습니다.)
+
+따라서 컬럼/인덱스 추가 같은 **증분 스키마 변경**은 전체 파일이 아니라 **변경분만 담은 별도 SQL**을
+실행합니다. 예시(캐리어 `city` 컬럼 추가, 2024년에 실제로 적용한 절차):
+
+```bash
+# 위 1)/2)단계로 임시 방화벽 허용 + DB_URL 조립 후:
+docker run --rm -e DATABASE_URL="$DB_URL" luggy-api node -e "
+  const {Client}=require('pg');
+  const c=new Client({connectionString:process.env.DATABASE_URL});
+  c.connect()
+   .then(()=>c.query(\`
+     ALTER TABLE carriers ADD COLUMN IF NOT EXISTS city VARCHAR(50) NOT NULL DEFAULT '서울';
+     CREATE INDEX IF NOT EXISTS idx_carriers_city ON carriers(city);
+   \`))
+   .then(()=>{console.log('OK');return c.end();});
+"
+# 그리고 5)단계로 임시 방화벽 규칙 제거
+```
+
+두 문장 모두 `IF NOT EXISTS`로 작성되어 있으므로 이미 적용된 환경에서 다시 실행해도 안전합니다.
+
+### 동네 직거래(P2P) 파일럿 스키마 마이그레이션 (필수, 최초 1회)
+
+이미 staging/production을 배포한 상태에서 이번 P2P 파일럿 코드를 재배포하면, 아래 마이그레이션을
+**먼저** 실행하지 않는 한 회원가입/캐리어 등록/직거래 요청/채팅이 전부 500 에러를 냅니다
+(로컬 개발에서 실제로 재현·확인됨). `schema.sql`에 추가된 아래 구문들은 전부 `IF NOT EXISTS`로
+작성되어 있어 한 번에 묶어 실행해도 안전합니다:
+
+```bash
+# 위 1)/2)단계로 임시 방화벽 허용 + DB_URL 조립 후:
+docker run --rm -e DATABASE_URL="$DB_URL" luggy-api node -e "
+  const {Client}=require('pg');
+  const c=new Client({connectionString:process.env.DATABASE_URL});
+  c.connect()
+   .then(()=>c.query(\`
+     ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255);
+
+     ALTER TABLE carriers ADD COLUMN IF NOT EXISTS brand VARCHAR(100);
+     ALTER TABLE carriers ADD COLUMN IF NOT EXISTS model VARCHAR(100);
+     ALTER TABLE carriers ADD COLUMN IF NOT EXISTS dong VARCHAR(100);
+     ALTER TABLE carriers ADD COLUMN IF NOT EXISTS latitude DECIMAL(9, 6);
+     ALTER TABLE carriers ADD COLUMN IF NOT EXISTS longitude DECIMAL(9, 6);
+     ALTER TABLE carriers ADD COLUMN IF NOT EXISTS deal_mode VARCHAR(20) NOT NULL DEFAULT 'platform'
+       CHECK (deal_mode IN ('direct', 'platform'));
+     CREATE INDEX IF NOT EXISTS idx_carriers_dong ON carriers(dong);
+     CREATE INDEX IF NOT EXISTS idx_carriers_deal_mode ON carriers(deal_mode);
+
+     CREATE TABLE IF NOT EXISTS deal_requests (
+       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+       carrier_id UUID NOT NULL REFERENCES carriers(id) ON DELETE CASCADE,
+       requester_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+       owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+       status VARCHAR(20) NOT NULL DEFAULT 'requested' CHECK (status IN (
+         'requested', 'accepted', 'declined', 'cancelled', 'completed'
+       )),
+       start_date DATE,
+       end_date DATE,
+       created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+       updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+     );
+     CREATE INDEX IF NOT EXISTS idx_deal_requests_carrier ON deal_requests(carrier_id);
+     CREATE INDEX IF NOT EXISTS idx_deal_requests_requester ON deal_requests(requester_id);
+     CREATE INDEX IF NOT EXISTS idx_deal_requests_owner ON deal_requests(owner_id);
+
+     CREATE TABLE IF NOT EXISTS chat_messages (
+       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+       deal_request_id UUID NOT NULL REFERENCES deal_requests(id) ON DELETE CASCADE,
+       sender_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+       body TEXT NOT NULL,
+       created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+     );
+     CREATE INDEX IF NOT EXISTS idx_chat_messages_deal ON chat_messages(deal_request_id, created_at);
+   \`))
+   .then(()=>{console.log('OK');return c.end();});
+"
+# 그리고 5)단계로 임시 방화벽 규칙 제거
+```
+
+신규 환경을 처음부터 배포하는 경우(아직 한 번도 `azd up`한 적 없는 환경)에는 이 단계가 필요 없습니다
+— 최초 배포 후 DB 스키마 적용 단계(위)에서 최신 `schema.sql` 전체가 그대로 적용되기 때문입니다.
+
 ### 재배포 (코드만 변경 시)
 
 ```bash
@@ -194,17 +306,20 @@ azd down -e production --purge
 ### Provider 플로우
 
 ```bash
-# 1. 캐리어 등록 (사진 포함)
+# 1. 캐리어 등록 (사진 포함, city/optInRentable은 선택 — 생략 시 city="서울", optInRentable=false)
 POST /providers/carriers
 {
   "providerId": "uuid",
   "size": "carry_on",
   "brandModel": "Samsonite C-Lite",
   "basePrice": 120000,
-  "intakePhotoUrl": "https://..."
+  "intakePhotoUrl": "https://...",
+  "city": "서울",
+  "optInRentable": true
 }
 
-# 2. 렌탈 허용 전환
+# 2. 렌탈 허용 전환 (등록 시 optInRentable을 안 보냈거나, 과거에 opt-in이 누락되어
+#    렌탈 불가 상태로 멈춘 캐리어를 되돌리는 재시도 경로 — 웹 UI의 "렌탈 허용으로 전환" 버튼도 이 엔드포인트 호출)
 POST /providers/carriers/{id}/opt-in
 
 # 3. 내 캐리어 조회
@@ -214,8 +329,11 @@ GET /providers/{providerId}/carriers
 ### Renter 플로우
 
 ```bash
-# 1. 검색 (기간 + 사이즈)
-GET /renters/search?size=carry_on&start_date=2026-08-20&end_date=2026-08-22
+# 0. 현재 재고가 있는 도시 목록 (검색 폼의 도시 드롭다운을 채우는 데이터 소스)
+GET /carriers/cities?size=carry_on&start_date=2026-08-20&end_date=2026-08-22
+
+# 1. 검색 (기간 + 사이즈, city는 선택 — 생략 시 전체 도시 대상)
+GET /renters/search?size=carry_on&start_date=2026-08-20&end_date=2026-08-22&city=서울
 
 # 2. 예약 생성
 POST /bookings
@@ -324,6 +442,11 @@ npx playwright test --ui
 각 게이트는 실제 Docker Compose 스택(Postgres + API + Web)에 대해 실제 브라우저 UI를
 조작하여 실행됩니다 (API를 우회하지 않음).
 
+같은 스위트에 AGENTS.md 필수 게이트는 아니지만 회귀 검증용으로 함께 실행되는 시나리오도 있습니다:
+
+4. **도시 필터**: 서로 다른 도시로 캐리어 2개를 등록 → Renter 도시 드롭다운이 실제 재고 기준으로
+   채워짐을 확인 → 도시를 선택하면 그 도시의 캐리어만 보이고 다른 도시 캐리어는 제외됨을 검증.
+
 ---
 
 ## 기술 스택
@@ -378,6 +501,9 @@ npx playwright test --ui
 | `AZURE_STORAGE_CONNECTION_STRING` | 설정 시 Azure Blob SAS 업로드 활성화 (미설정 시 로컬 디스크 fallback) |
 | `AZURE_BLOB_CONTAINER_INTAKE` / `AZURE_BLOB_CONTAINER_INSPECTION` | Blob 컨테이너명 override |
 | `VITE_API_URL` (web 빌드 시점) | 정적 번들에 인라인되는 API base URL |
+| `AUTH_TOKEN_SECRET` | 동네 직거래 로그인 세션 토큰 HMAC 서명 키 (운영 환경에서는 반드시 강한 값으로 별도 설정) |
+| `AZURE_OPENAI_ENDPOINT` / `AZURE_OPENAI_API_KEY` / `AZURE_OPENAI_DEPLOYMENT` / `AZURE_OPENAI_API_VERSION` | AI 캐리어 등록(사진 인식/챗봇)용 Azure OpenAI 접속 정보. 미설정 시 해당 API만 503으로 비활성화 |
+| `VITE_KAKAO_MAP_KEY` (web 빌드 시점) | 캐리어 지도 탭에 인라인되는 Kakao Map JavaScript 키. 미설정 시 지도는 안내 placeholder만 표시 |
 
 ---
 

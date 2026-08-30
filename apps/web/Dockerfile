@@ -17,9 +17,13 @@ COPY apps/web/public apps/web/public
 COPY apps/web/index.html apps/web/
 COPY apps/web/tsconfig.json apps/web/
 
-# Build (VITE_API_URL is inlined into the static bundle at build time)
+# Build (VITE_API_URL/VITE_KAKAO_MAP_KEY are inlined into the static bundle at
+# build time; the Kakao key is empty by default so the map tab degrades to a
+# "API 키 필요" placeholder instead of failing the build)
 ARG VITE_API_URL=http://localhost:3001
+ARG VITE_KAKAO_MAP_KEY=
 ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_KAKAO_MAP_KEY=$VITE_KAKAO_MAP_KEY
 RUN cd apps/web && npm run build
 
 # Runtime stage

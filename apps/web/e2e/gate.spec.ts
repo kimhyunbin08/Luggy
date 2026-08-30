@@ -38,13 +38,14 @@ function parseWon(text: string | null): number {
  * uploaded intake photo (exercises the storage sign -> upload -> blobUrl pipeline). */
 async function registerCarrier(
   page: Page,
-  opts: { brand: string; model: string; price: number },
+  opts: { brand: string; model: string; price: number; city?: string },
 ): Promise<void> {
   await page.goto(WEB_URL);
   await page.locator('[data-tab="provider"]').click();
   await page.fill('#providerBrand', opts.brand);
   await page.fill('#providerModel', opts.model);
   await page.fill('#providerPrice', String(opts.price));
+  if (opts.city) await page.fill('#providerCity', opts.city);
   await page.setInputFiles('#providerPhoto', PHOTO_PATH);
   await expect(page.locator('.upload-field strong')).toHaveText('입고 사진 업로드 완료', { timeout: 15000 });
   await page.locator('#registerBtn').click();
@@ -174,5 +175,32 @@ test.describe('Luggy MVP required E2E gates', () => {
     expect(booking.ledgerEntries.some((entry: { entryType: string }) => entry.entryType === 'refund')).toBe(
       true,
     );
+  });
+
+  test('Gate 4: 도시 선택이 실제로 렌탈 검색 결과를 필터링한다', async ({ page }) => {
+    const suffix = uniqueSuffix();
+    const brandBusan = `CityGateBusan-${suffix}`;
+    const brandSeoul = `CityGateSeoul-${suffix}`;
+    await registerCarrier(page, { brand: brandBusan, model: `Model-${suffix}`, price: 77000, city: '부산' });
+    await registerCarrier(page, { brand: brandSeoul, model: `Model-${suffix}`, price: 78000, city: '서울' });
+
+    await page.locator('[data-tab="rent"]').click();
+    // The rent tab refetches the available-cities list on every visit, so the city we
+    // just registered under must show up as a real, data-backed option (not a hardcoded one).
+    await expect(page.locator('#searchCity option', { hasText: '부산' })).toHaveCount(1, { timeout: 10000 });
+
+    await page.selectOption('#searchCity', '부산');
+    await page.locator('#searchBtn').click();
+    await page.waitForSelector('.cards .carrier-card', { timeout: 10000 });
+    await expect(page.locator('.cards')).toContainText(brandBusan);
+    await expect(page.locator('.cards')).not.toContainText(brandSeoul);
+
+    // Selecting a different city must genuinely swap which carrier is excluded, proving the
+    // backend applies a real filter rather than the dropdown being cosmetic.
+    await page.selectOption('#searchCity', '서울');
+    await page.locator('#searchBtn').click();
+    await page.waitForSelector('.cards .carrier-card', { timeout: 10000 });
+    await expect(page.locator('.cards')).toContainText(brandSeoul);
+    await expect(page.locator('.cards')).not.toContainText(brandBusan);
   });
 });

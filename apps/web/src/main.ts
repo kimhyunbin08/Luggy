@@ -1,8 +1,9 @@
 import "./styles.css";
 import { shouldDisableBookingCTA } from "./funnel.js";
+import { initP2pTab, stopP2pTab, renderP2pTab, bindP2pEvents } from "./p2p.js";
 
 type Size = "carry_on" | "medium";
-type Tab = "rent" | "provider" | "ops";
+type Tab = "rent" | "provider" | "ops" | "p2p";
 type Step = 1 | 2 | 3;
 type DeliveryDirection = "outbound" | "return";
 type DeliveryStatus = "in_transit" | "arrived" | "delayed";
@@ -21,6 +22,7 @@ type Carrier = {
   remainingQuantity: number;
   status?: string;
   optInRentable?: boolean;
+  city?: string;
   provider: {
     id: string;
     rating: number;
@@ -142,7 +144,11 @@ const state = {
   startDate: futureDate(7),
   endDate: futureDate(9),
   size: "carry_on" as Size,
-  deliveryAddress: "",
+  // Selected city filter for renter search ("" = 전체 도시 / no filter, keeps
+  // default search behavior unchanged). availableCities is populated from
+  // GET /carriers/cities and drives the <select> options.
+  searchCity: "",
+  availableCities: [] as string[],
   sort: "recommended",
   searchResults: [] as Carrier[],
   selectedCarrierId: "",
@@ -156,6 +162,7 @@ const state = {
   bookingCancelled: false,
   cancelRefundAmount: null as number | null,
   providerSize: "carry_on" as Size,
+  providerCity: "서울",
   providerBrand: "",
   providerModel: "",
   providerBasePrice: 0,
@@ -289,6 +296,7 @@ function normalizeCarrier(
     remainingQuantity: Number(raw.remainingQuantity || raw.remaining_quantity || raw.quantity || 1),
     status: String(raw.status || ""),
     optInRentable: Boolean(raw.optInRentable ?? raw.is_opted_in),
+    city: String(raw.city || ""),
     provider: {
       id: String(provider.id || raw.provider_id || ""),
       rating: Number(provider.rating || raw.rating || 4.8),
@@ -363,8 +371,8 @@ async function searchCarriers(): Promise<void> {
     url.searchParams.set("start_date", state.startDate);
     url.searchParams.set("end_date", state.endDate);
     url.searchParams.set("sort", state.sort);
-    if (state.deliveryAddress.trim()) {
-      url.searchParams.set("delivery_address", state.deliveryAddress.trim());
+    if (state.searchCity) {
+      url.searchParams.set("city", state.searchCity);
     }
 
     const response = await fetch(url.toString());
@@ -393,6 +401,33 @@ async function searchCarriers(): Promise<void> {
   } finally {
     state.loading = false;
     render();
+  }
+}
+
+// Populates state.availableCities with cities that currently have rentable
+// inventory for the active size/date filters (GET /carriers/cities), so the
+// renter city <select> only ever lists cities that actually have carriers
+// ("캐리어가 있는 도시"), never a hardcoded list. Called on initial load and
+// whenever size/date search inputs change.
+async function fetchAvailableCities(): Promise<void> {
+  if (!canSearch()) return;
+
+  try {
+    const url = new URL(`${API_URL}/carriers/cities`);
+    url.searchParams.set("size", state.size);
+    url.searchParams.set("start_date", state.startDate);
+    url.searchParams.set("end_date", state.endDate);
+
+    const response = await fetch(url.toString());
+    if (!response.ok) throw await responseError(response, "도시 목록을 불러오지 못했습니다.");
+
+    const data = await response.json();
+    state.availableCities = Array.isArray(data.cities) ? data.cities : [];
+    if (state.searchCity && !state.availableCities.includes(state.searchCity)) {
+      state.searchCity = "";
+    }
+  } catch (error) {
+    console.error("[Cities] Failed to fetch available cities:", error);
   }
 }
 
@@ -557,6 +592,10 @@ async function registerCarrier(): Promise<void> {
   render();
 
   try {
+    // Registration and opt-in are sent as a single atomic request (rather
+    // than create-then-opt-in as two separate calls) so a dropped/failed
+    // second call can no longer leave a carrier permanently stuck at
+    // intake_pending with no way to tell it happened.
     const response = await fetch(`${API_URL}/providers/carriers`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -566,18 +605,11 @@ async function registerCarrier(): Promise<void> {
         brandModel: `${state.providerBrand.trim()} ${state.providerModel.trim()}`,
         basePrice: state.providerBasePrice,
         intakePhotoUrl: state.providerPhotoUrl || undefined,
+        city: state.providerCity.trim() || "서울",
+        optInRentable: state.providerOptIn,
       }),
     });
     if (!response.ok) throw await responseError(response, "캐리어 등록에 실패했습니다.");
-
-    const carrier = await response.json();
-    if (state.providerOptIn) {
-      const optInResponse = await fetch(`${API_URL}/providers/carriers/${carrier.id}/opt-in`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-      if (!optInResponse.ok) throw await responseError(optInResponse, "Opt-in 처리에 실패했습니다.");
-    }
 
     state.providerBrand = "";
     state.providerModel = "";
@@ -586,12 +618,41 @@ async function registerCarrier(): Promise<void> {
     state.notice = state.providerOptIn
       ? "캐리어가 등록되고 렌탈 허용 상태로 전환되었습니다."
       : "캐리어가 입고 신청되었습니다.";
-    await fetchProviderCarriers();
   } catch (error) {
     state.error = `등록 실패: ${error instanceof Error ? error.message : String(error)}`;
     console.error("[Provider] Error:", error);
   } finally {
     state.loading = false;
+    // Always refresh, even on failure: the create call may have actually
+    // succeeded server-side, so the list must reflect true state rather than
+    // silently hiding a carrier the user can't otherwise see.
+    await fetchProviderCarriers();
+    render();
+  }
+}
+
+// Recovery path for carriers left at optInRentable=false for any reason
+// (e.g. an old two-step registration whose opt-in call never completed).
+// Lets a provider self-serve the fix from "내 캐리어" instead of being stuck.
+async function retryOptIn(carrierId: string): Promise<void> {
+  state.loading = true;
+  state.error = "";
+  state.notice = "";
+  render();
+
+  try {
+    const response = await fetch(`${API_URL}/providers/carriers/${carrierId}/opt-in`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!response.ok) throw await responseError(response, "렌탈 허용 전환에 실패했습니다.");
+    state.notice = "렌탈 허용 상태로 전환되었습니다.";
+  } catch (error) {
+    state.error = `전환 실패: ${error instanceof Error ? error.message : String(error)}`;
+    console.error("[Provider] Opt-in retry error:", error);
+  } finally {
+    state.loading = false;
+    await fetchProviderCarriers();
     render();
   }
 }
@@ -850,7 +911,7 @@ function renderCarrierCard(carrier: Carrier): string {
       <div class="carrier-content">
         <div class="card-topline">
           <span class="badge badge--olive">${escapeHtml(inspectionBadge)}</span>
-          <span class="card-location">배송 전용</span>
+          <span class="card-location">${escapeHtml(carrier.city || "배송 전용")}</span>
         </div>
         <div class="card-heading">
           <div>
@@ -952,7 +1013,7 @@ function renderCheckout(selected: Carrier | undefined, rentalDays: number): stri
           <h3>선택한 일정이 맞나요?</h3>
           <dl class="detail-list">
             <div><dt>대여 기간</dt><dd>${dateLabel(state.startDate)} - ${dateLabel(state.endDate)}</dd></div>
-            <div><dt>수령지</dt><dd>${escapeHtml(state.deliveryAddress || "배송지 입력 예정")}</dd></div>
+            <div><dt>수령지</dt><dd>${escapeHtml(selected?.city || state.searchCity || "도시 미지정")}</dd></div>
           </dl>
           <button type="button" id="toStep2" class="button button--primary" ${detailsAllowed ? "" : "disabled"}>정보 입력으로 계속</button>
         </section>
@@ -1043,6 +1104,7 @@ function renderProvider(): string {
               <option value="medium" ${state.providerSize === "medium" ? "selected" : ""}>중형</option>
             </select>
           </label>
+          <label class="field">보관 도시<input id="providerCity" value="${escapeHtml(state.providerCity)}" placeholder="서울" /></label>
           <label class="field">브랜드<input id="providerBrand" value="${escapeHtml(state.providerBrand)}" placeholder="Samsonite" /></label>
           <label class="field">모델명<input id="providerModel" value="${escapeHtml(state.providerModel)}" placeholder="C-Lite" /></label>
           <label class="field">기준가 (원)<input id="providerPrice" type="number" min="1" value="${state.providerBasePrice || ""}" placeholder="120000" /></label>
@@ -1068,8 +1130,13 @@ function renderProvider(): string {
                   (carrier) => `
                   <article class="inventory-item">
                     <div class="inventory-thumb">${carrierMedia(carrier)}</div>
-                    <div class="inventory-copy"><strong>${escapeHtml(carrier.brandModel)}</strong><span>${sizeLabel(carrier.size)} · 기준가 ${currency(carrier.basePrice || 0)}</span></div>
+                    <div class="inventory-copy"><strong>${escapeHtml(carrier.brandModel)}</strong><span>${sizeLabel(carrier.size)} · ${escapeHtml(carrier.city || "서울")} · 기준가 ${currency(carrier.basePrice || 0)}</span></div>
                     <span class="inventory-status ${carrier.optInRentable ? "is-live" : ""}"><i></i>${carrier.optInRentable ? "렌탈 허용" : "입고 확인 중"}</span>
+                    ${
+                      carrier.optInRentable
+                        ? ""
+                        : `<button type="button" class="button button--ghost button--small" data-optin-retry="${escapeHtml(carrier.id)}" ${state.loading ? "disabled" : ""}>렌탈 허용으로 전환</button>`
+                    }
                   </article>
                 `,
                 )
@@ -1343,6 +1410,7 @@ function render(): void {
           <nav class="menu" aria-label="주요 메뉴">
             <button type="button" data-tab="rent" class="nav-btn ${state.tab === "rent" ? "is-active" : ""}">렌탈</button>
             <button type="button" data-tab="provider" class="nav-btn ${state.tab === "provider" ? "is-active" : ""}">맡기기</button>
+            <button type="button" data-tab="p2p" class="nav-btn ${state.tab === "p2p" ? "is-active" : ""}">동네 직거래</button>
             <button type="button" data-tab="ops" class="nav-btn ${state.tab === "ops" ? "is-active" : ""}">운영</button>
           </nav>
         </div>
@@ -1367,7 +1435,7 @@ function render(): void {
               <label class="field"><span>대여 시작일</span><input id="startDate" type="date" value="${escapeHtml(state.startDate)}" aria-describedby="dateHint" /></label>
               <label class="field"><span>반납일</span><input id="endDate" type="date" min="${escapeHtml(state.startDate)}" value="${escapeHtml(state.endDate)}" aria-describedby="dateHint" /></label>
               <label class="field"><span>사이즈</span><select id="size"><option value="carry_on" ${state.size === "carry_on" ? "selected" : ""}>기내용</option><option value="medium" ${state.size === "medium" ? "selected" : ""}>중형</option></select></label>
-              <label class="field field--address"><span>수령 지역 <small>(선택)</small></span><input id="deliveryAddress" value="${escapeHtml(state.deliveryAddress)}" placeholder="예: 서울 강남구" autocomplete="street-address" /></label>
+              <label class="field"><span>도시 <small>(선택)</small></span><select id="searchCity"><option value="">전체 도시</option>${state.availableCities.map((city) => `<option value="${escapeHtml(city)}" ${state.searchCity === city ? "selected" : ""}>${escapeHtml(city)}</option>`).join("")}</select></label>
               <button type="submit" id="searchBtn" class="button button--primary search-button" ${canSearch() && !state.loading ? "" : "disabled"}>${state.loading ? "검색 중..." : "즉시 조회"}<span aria-hidden="true">↗</span></button>
             </div>
             <p id="dateHint" class="${rentalDays < DISPLAY_POLICY.minRentalDays ? "field-hint is-warning" : "field-hint"}">${rentalDays < DISPLAY_POLICY.minRentalDays ? "최소 대여기간은 2일입니다." : `${rentalDays}일 일정 · 날짜를 선택하면 총액이 바로 계산됩니다.`}</p>
@@ -1392,7 +1460,9 @@ function render(): void {
       `
           : state.tab === "provider"
             ? renderProvider()
-            : renderOps()
+            : state.tab === "p2p"
+              ? renderP2pTab()
+              : renderOps()
       }
       <footer class="page-footer"><span>luggy</span><span>검수부터 반납까지, 가벼운 여행의 기본</span></footer>
     </main>
@@ -1409,11 +1479,15 @@ function updatePaymentButton(): void {
 function bindEvents(): void {
   document.querySelectorAll<HTMLButtonElement>("[data-tab]").forEach((button) => {
     button.addEventListener("click", () => {
+      const previousTab = state.tab;
       state.tab = button.dataset.tab as Tab;
       state.step = 1;
       state.error = "";
       state.notice = "";
+      if (previousTab === "p2p" && state.tab !== "p2p") stopP2pTab();
       if (state.tab === "provider") void fetchProviderCarriers().then(render);
+      if (state.tab === "rent") void fetchAvailableCities().then(render);
+      if (state.tab === "p2p") initP2pTab(render);
       if (state.tab === "ops") {
         if (!state.opsBookingIdInput && state.bookingId) state.opsBookingIdInput = state.bookingId;
         void fetchOpsKpi().then(render);
@@ -1423,6 +1497,8 @@ function bindEvents(): void {
     });
   });
 
+  bindP2pEvents(render);
+
   document.querySelector<HTMLFormElement>("#searchForm")?.addEventListener("submit", (event) => {
     event.preventDefault();
     void searchCarriers();
@@ -1430,19 +1506,22 @@ function bindEvents(): void {
   document.querySelector<HTMLInputElement>("#startDate")?.addEventListener("change", (event) => {
     state.startDate = (event.target as HTMLInputElement).value;
     render();
+    void fetchAvailableCities().then(render);
   });
   document.querySelector<HTMLInputElement>("#endDate")?.addEventListener("change", (event) => {
     state.endDate = (event.target as HTMLInputElement).value;
     render();
+    void fetchAvailableCities().then(render);
   });
-  document.querySelector<HTMLInputElement>("#deliveryAddress")?.addEventListener("input", (event) => {
-    state.deliveryAddress = (event.target as HTMLInputElement).value;
+  document.querySelector<HTMLSelectElement>("#searchCity")?.addEventListener("change", (event) => {
+    state.searchCity = (event.target as HTMLSelectElement).value;
   });
   document.querySelector<HTMLSelectElement>("#size")?.addEventListener("change", (event) => {
     state.size = (event.target as HTMLSelectElement).value as Size;
     state.selectedCarrierId = "";
     state.step = 1;
     render();
+    void fetchAvailableCities().then(render);
   });
   document.querySelector<HTMLSelectElement>("#sort")?.addEventListener("change", (event) => {
     state.sort = (event.target as HTMLSelectElement).value;
@@ -1512,6 +1591,9 @@ function bindEvents(): void {
   document.querySelector<HTMLSelectElement>("#providerSize")?.addEventListener("change", (event) => {
     state.providerSize = (event.target as HTMLSelectElement).value as Size;
   });
+  document.querySelector<HTMLInputElement>("#providerCity")?.addEventListener("input", (event) => {
+    state.providerCity = (event.target as HTMLInputElement).value;
+  });
   document.querySelector<HTMLInputElement>("#providerBrand")?.addEventListener("input", (event) => {
     state.providerBrand = (event.target as HTMLInputElement).value;
   });
@@ -1546,6 +1628,12 @@ function bindEvents(): void {
   });
   document.querySelector<HTMLButtonElement>("#registerBtn")?.addEventListener("click", () => {
     void registerCarrier();
+  });
+  document.querySelectorAll<HTMLButtonElement>("[data-optin-retry]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const carrierId = button.dataset.optinRetry;
+      if (carrierId) void retryOptIn(carrierId);
+    });
   });
 
   // ---- Ops console bindings ----
@@ -1632,3 +1720,4 @@ function bindEvents(): void {
 
 void logFunnelEvent("landing_view", { timestamp: new Date().toISOString() });
 render();
+void fetchAvailableCities().then(render);

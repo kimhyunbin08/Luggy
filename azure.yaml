@@ -33,5 +33,9 @@ services:
       # The API's public URL is only known after `azd provision` creates the
       # Container App; SERVICE_API_URI comes from infra/main.bicep's output
       # and is inlined into the static bundle at build time.
+      # VITE_KAKAO_MAP_KEY comes from a plain azd env var (`azd env set
+      # VITE_KAKAO_MAP_KEY ...`), not a Bicep output — it's an external key
+      # the user obtains from Kakao Developers, not an Azure resource.
       buildArgs:
         - VITE_API_URL=${SERVICE_API_URI}
+        - VITE_KAKAO_MAP_KEY=${VITE_KAKAO_MAP_KEY}

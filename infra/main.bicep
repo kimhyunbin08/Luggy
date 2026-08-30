@@ -21,6 +21,10 @@ param paymentWebhookSecret string
 @description('Shared secret required by the /webhooks/delivery endpoint')
 param deliveryWebhookSecret string
 
+@secure()
+@description('Server-side secret used to sign 동네 직거래 (direct-deal) auth session tokens')
+param authTokenSecret string
+
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
 var tags = {
   'azd-env-name': environmentName
@@ -42,6 +46,7 @@ module resources 'resources.bicep' = {
     postgresAdminPassword: postgresAdminPassword
     paymentWebhookSecret: paymentWebhookSecret
     deliveryWebhookSecret: deliveryWebhookSecret
+    authTokenSecret: authTokenSecret
   }
 }
 
