@@ -125,6 +125,113 @@ describe('carrier registration + opt-in (regression: bugs #2 and #3)', () => {
   });
 });
 
+describe('city filter + atomic opt-in (real city-selection feature)', () => {
+  it('creates a carrier already opted-in when optInRentable is sent, in a single call', async () => {
+    const providerId = await createTestUser('provider');
+    const createRes = await request(app).post('/providers/carriers').send({
+      providerId,
+      size: 'carry_on',
+      brandModel: 'AtomicOptInTest',
+      basePrice: 7900,
+      city: '부산',
+      optInRentable: true,
+    });
+    expect(createRes.status).toBe(201);
+    // Create + opt-in happen atomically in the same INSERT now, closing the
+    // race where a dropped follow-up opt-in call left a carrier stuck.
+    expect(createRes.body.status).toBe('available');
+    expect(createRes.body.optInRentable).toBe(true);
+    expect(createRes.body.city).toBe('부산');
+
+    const start = futureDateStr(70);
+    const end = futureDateStr(72);
+    const search = await request(app).get(
+      `/renters/search?size=carry_on&start_date=${start}&end_date=${end}`
+    );
+    expect(search.body.items.some((i: any) => i.id === createRes.body.id)).toBe(true);
+  });
+
+  it('defaults city to 서울 when omitted (backward compatible with existing callers)', async () => {
+    const providerId = await createTestUser('provider');
+    const createRes = await request(app).post('/providers/carriers').send({
+      providerId,
+      size: 'carry_on',
+      brandModel: 'DefaultCityTest',
+      basePrice: 7900,
+    });
+    expect(createRes.status).toBe(201);
+    expect(createRes.body.city).toBe('서울');
+  });
+
+  it('filters search results by city, and omitting city returns all cities (legacy behavior)', async () => {
+    const providerId = await createTestUser('provider');
+    const start = futureDateStr(80);
+    const end = futureDateStr(82);
+
+    const seoulCreate = await request(app).post('/providers/carriers').send({
+      providerId,
+      size: 'medium',
+      brandModel: 'SeoulCityCarrier',
+      basePrice: 11900,
+      city: '서울',
+      optInRentable: true,
+    });
+    const busanCreate = await request(app).post('/providers/carriers').send({
+      providerId,
+      size: 'medium',
+      brandModel: 'BusanCityCarrier',
+      basePrice: 11900,
+      city: '부산',
+      optInRentable: true,
+    });
+    const seoulId = seoulCreate.body.id;
+    const busanId = busanCreate.body.id;
+
+    const searchSeoul = await request(app).get(
+      `/renters/search?size=medium&start_date=${start}&end_date=${end}&city=${encodeURIComponent('서울')}`
+    );
+    expect(searchSeoul.body.items.some((i: any) => i.id === seoulId)).toBe(true);
+    expect(searchSeoul.body.items.some((i: any) => i.id === busanId)).toBe(false);
+    expect(searchSeoul.body.metadata.city).toBe('서울');
+
+    const searchBusan = await request(app).get(
+      `/renters/search?size=medium&start_date=${start}&end_date=${end}&city=${encodeURIComponent('부산')}`
+    );
+    expect(searchBusan.body.items.some((i: any) => i.id === busanId)).toBe(true);
+    expect(searchBusan.body.items.some((i: any) => i.id === seoulId)).toBe(false);
+
+    // Omitting city must preserve legacy (pre-feature) behavior: no filtering.
+    const searchAll = await request(app).get(
+      `/renters/search?size=medium&start_date=${start}&end_date=${end}`
+    );
+    expect(searchAll.body.items.some((i: any) => i.id === seoulId)).toBe(true);
+    expect(searchAll.body.items.some((i: any) => i.id === busanId)).toBe(true);
+    expect(searchAll.body.metadata.city).toBe(null);
+  });
+
+  it('GET /carriers/cities returns distinct cities with current availability', async () => {
+    const providerId = await createTestUser('provider');
+    const start = futureDateStr(90);
+    const end = futureDateStr(92);
+
+    await request(app).post('/providers/carriers').send({
+      providerId,
+      size: 'carry_on',
+      brandModel: 'DaeguCityCarrier',
+      basePrice: 7900,
+      city: '대구',
+      optInRentable: true,
+    });
+
+    const citiesRes = await request(app).get(
+      `/carriers/cities?size=carry_on&start_date=${start}&end_date=${end}`
+    );
+    expect(citiesRes.status).toBe(200);
+    expect(Array.isArray(citiesRes.body.cities)).toBe(true);
+    expect(citiesRes.body.cities).toContain('대구');
+  });
+});
+
 describe('full booking lifecycle: search -> book -> pay -> deliver -> inspect -> complete', () => {
   let renterId: string;
   let providerId: string;

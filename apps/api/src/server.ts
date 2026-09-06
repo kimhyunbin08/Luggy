@@ -18,7 +18,13 @@ import * as costService from './services/cost.service.js';
 import * as storageService from './services/storage.service.js';
 import * as metricsService from './services/metrics.service.js';
 import { WebhookSignatureError } from './services/webhook.service.js';
-import { CarrierSize } from './models/types.js';
+import * as authService from './services/auth.service.js';
+import { AuthError } from './services/auth.service.js';
+import * as aiService from './services/ai.service.js';
+import { AiNotConfiguredError } from './services/ai.service.js';
+import * as dealService from './services/deal.service.js';
+import { DealError } from './services/deal.service.js';
+import { CarrierSize, DealRequestStatus } from './models/types.js';
 
 const PLATFORM_LOGISTICS_COST_RATIO = Number(process.env.PLATFORM_LOGISTICS_COST_RATIO || '0.7');
 
@@ -71,6 +77,86 @@ export function createApp() {
   app.use('/uploads/files', express.static(storageService.getLocalUploadDir()));
   const localUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
+  // Required for every '동네 직거래' endpoint (AI registration, map requests,
+  // deal chat) — these need a real, distinguishable user, unlike the legacy
+  // platform-delivery flow's MOCK_RENTER_ID/MOCK_PROVIDER_ID. Attaches the
+  // authenticated user id as req.userId; does not touch legacy routes.
+  // <P> is left generic (no explicit/default type arg) on purpose: Express 5's
+  // route-param typing infers a route's specific `req.params` shape only when
+  // every handler in `app.get(path, ...handlers)` shares the same inferred P.
+  // A non-generic req: express.Request here would pin P to the wide default
+  // ParamsDictionary for the whole handler chain, widening req.params.id to
+  // `string | string[]` in every handler that follows this middleware.
+  function requireAuth<P>(req: express.Request<P>, res: express.Response, next: express.NextFunction) {
+    const header = req.header('Authorization');
+    const token = header?.startsWith('Bearer ') ? header.slice(7) : undefined;
+    const userId = authService.verifyToken(token);
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized: missing or invalid token' });
+    }
+    (req as unknown as express.Request & { userId?: string }).userId = userId;
+    next();
+  }
+
+  // ============================================================
+  // AUTH ENDPOINTS (동네 직거래 모드 전용 — 실사용자 식별용 최소 이메일/비밀번호 인증)
+  // ============================================================
+
+  app.post('/auth/signup', async (req, res) => {
+    try {
+      const schema = z.object({
+        email: z.string().email(),
+        password: z.string().min(8, '비밀번호는 8자 이상이어야 합니다'),
+        name: z.string().min(1),
+        phone: z.string().min(1).max(20).optional(),
+      });
+      const parsed = schema.parse(req.body);
+      const user = await authService.signup(parsed);
+      const token = authService.signToken(user.id);
+      res.status(201).json({ token, user });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Validation failed', details: error.issues });
+      }
+      if (error instanceof Error && error.message === 'EMAIL_TAKEN') {
+        return res.status(409).json({ error: '이미 가입된 이메일입니다' });
+      }
+      console.error('Error signing up:', error);
+      res.status(500).json({ error: 'Failed to sign up' });
+    }
+  });
+
+  app.post('/auth/login', async (req, res) => {
+    try {
+      const schema = z.object({ email: z.string().email(), password: z.string().min(1) });
+      const parsed = schema.parse(req.body);
+      const user = await authService.login(parsed.email, parsed.password);
+      const token = authService.signToken(user.id);
+      res.json({ token, user });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Validation failed', details: error.issues });
+      }
+      if (error instanceof AuthError) {
+        return res.status(error.statusCode).json({ error: error.message });
+      }
+      console.error('Error logging in:', error);
+      res.status(500).json({ error: 'Failed to log in' });
+    }
+  });
+
+  app.get('/auth/me', requireAuth, async (req, res) => {
+    try {
+      const userId = (req as express.Request & { userId?: string }).userId as string;
+      const user = await authService.findUserById(userId);
+      if (!user) return res.status(404).json({ error: 'User not found' });
+      res.json({ user });
+    } catch (error) {
+      console.error('Error fetching current user:', error);
+      res.status(500).json({ error: 'Failed to fetch current user' });
+    }
+  });
+
   // ============================================================
   // PROVIDER ENDPOINTS
   // ============================================================
@@ -78,22 +164,58 @@ export function createApp() {
   // POST /providers/carriers - Register a new carrier for storage
   app.post('/providers/carriers', async (req, res) => {
     try {
+      // Optional auth: the legacy platform-delivery flow calls this
+      // unauthenticated with providerId in the body (preserved for backward
+      // compatibility with the existing E2E gates). The '동네 직거래' flow
+      // sends a Bearer token instead, and the authenticated user's id always
+      // wins over anything the client puts in the body, so nobody can create
+      // a direct-deal listing under someone else's identity.
+      const authHeader = req.header('Authorization');
+      const tokenFromHeader = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined;
+      const authedUserId = authService.verifyToken(tokenFromHeader);
+
       const schema = z.object({
-        providerId: z.string().uuid(),
+        providerId: z.string().uuid().optional(),
         size: z.enum(['carry_on', 'medium']),
         brandModel: z.string().min(1),
         basePrice: z.number().positive(),
         intakePhotoUrl: z.string().url().optional(),
+        city: z.string().min(1).max(50).optional(),
+        // Lets the create call double as an opt-in so a dropped/failed
+        // follow-up opt-in request can no longer leave a carrier stuck at
+        // intake_pending (see POST /providers/carriers/{id}/opt-in, which
+        // remains available separately as a retry path).
+        optInRentable: z.boolean().optional(),
+        // '동네 직거래' fields (all optional; omitted entirely by the legacy form).
+        brand: z.string().min(1).max(100).optional(),
+        model: z.string().min(1).max(100).optional(),
+        dong: z.string().min(1).max(100).optional(),
+        latitude: z.number().min(-90).max(90).optional(),
+        longitude: z.number().min(-180).max(180).optional(),
+        dealMode: z.enum(['direct', 'platform']).optional(),
       });
 
       const parsed = schema.parse(req.body);
-      const carrier = await carrierService.createCarrier(
-        parsed.providerId,
-        parsed.size as CarrierSize,
-        parsed.brandModel,
-        parsed.basePrice,
-        parsed.intakePhotoUrl
-      );
+      const providerId = authedUserId || parsed.providerId;
+      if (!providerId) {
+        return res.status(400).json({ error: 'providerId is required (or send a valid Authorization token)' });
+      }
+
+      const carrier = await carrierService.createCarrier({
+        providerId,
+        size: parsed.size as CarrierSize,
+        brandModel: parsed.brandModel,
+        basePrice: parsed.basePrice,
+        intakePhotoUrl: parsed.intakePhotoUrl,
+        city: parsed.city,
+        optInRentable: parsed.optInRentable,
+        brand: parsed.brand,
+        model: parsed.model,
+        dong: parsed.dong,
+        latitude: parsed.latitude,
+        longitude: parsed.longitude,
+        dealMode: parsed.dealMode,
+      });
 
       res.status(201).json(carrier);
     } catch (error) {
@@ -102,6 +224,203 @@ export function createApp() {
       }
       console.error('Error creating carrier:', error);
       res.status(500).json({ error: 'Failed to create carrier' });
+    }
+  });
+
+  // GET /carriers/map - '동네 직거래' 지도 뷰: 대여 가능한 direct-mode 캐리어를
+  // 동 단위 좌표로 반환한다(정확한 주소 아님). 인증 불필요(공개 탐색).
+  app.get('/carriers/map', async (req, res) => {
+    try {
+      const sizeParam = req.query.size as string | undefined;
+      const size = sizeParam === 'carry_on' || sizeParam === 'medium' ? (sizeParam as CarrierSize) : undefined;
+      const carriers = await carrierService.getCarriersForMap(size);
+      res.json({
+        items: carriers.map((c) => ({
+          id: c.id,
+          size: c.size,
+          brand: c.brand,
+          model: c.model,
+          brandModel: c.brandModel,
+          basePrice: c.basePrice,
+          thumbnailUrl: c.intakePhotoUrl,
+          dong: c.dong,
+          latitude: c.latitude,
+          longitude: c.longitude,
+        })),
+      });
+    } catch (error) {
+      console.error('Error fetching map carriers:', error);
+      res.status(500).json({ error: 'Failed to fetch map carriers' });
+    }
+  });
+
+  // POST /providers/carriers/ai-register/photo - AI(Azure OpenAI Vision)로
+  // 업로드된 사진에서 브랜드/모델/사이즈/상태를 추정한 초안을 반환한다.
+  // 사용자는 반환된 draft를 폼에서 확인/수정한 뒤 POST /providers/carriers로 제출한다.
+  app.post('/providers/carriers/ai-register/photo', requireAuth, async (req, res) => {
+    try {
+      const schema = z.object({ photoUrl: z.string().url() });
+      const parsed = schema.parse(req.body);
+      const draft = await aiService.analyzeCarrierPhoto(parsed.photoUrl);
+      res.json({ draft });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Validation failed', details: error.issues });
+      }
+      if (error instanceof AiNotConfiguredError) {
+        return res.status(error.statusCode).json({ error: error.message });
+      }
+      console.error('Error analyzing carrier photo:', error);
+      res.status(500).json({ error: 'Failed to analyze photo' });
+    }
+  });
+
+  // POST /providers/carriers/ai-register/chat - AI 챗봇 등록 대화 한 턴을 처리한다.
+  // Stateless: 클라이언트가 전체 대화 이력을 매번 함께 보낸다.
+  app.post('/providers/carriers/ai-register/chat', requireAuth, async (req, res) => {
+    try {
+      const schema = z.object({
+        messages: z
+          .array(
+            z.object({
+              role: z.enum(['system', 'user', 'assistant']),
+              content: z.string().min(1),
+            })
+          )
+          .min(1),
+      });
+      const parsed = schema.parse(req.body);
+      const result = await aiService.runRegistrationChatTurn(parsed.messages);
+      res.json(result);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Validation failed', details: error.issues });
+      }
+      if (error instanceof AiNotConfiguredError) {
+        return res.status(error.statusCode).json({ error: error.message });
+      }
+      console.error('Error running AI registration chat turn:', error);
+      res.status(500).json({ error: 'Failed to process chat message' });
+    }
+  });
+
+  // ============================================================
+  // DEAL REQUEST / CHAT ENDPOINTS (동네 직거래 — 결제/배송/검수 없음)
+  // ============================================================
+
+  // POST /deals - Renter가 지도/카드에서 캐리어에 보내는 요청. 생성 즉시 채팅방을 겸한다.
+  app.post('/deals', requireAuth, async (req, res) => {
+    try {
+      const schema = z.object({
+        carrierId: z.string().uuid(),
+        message: z.string().min(1).max(2000),
+        startDate: z.string().optional(),
+        endDate: z.string().optional(),
+      });
+      const parsed = schema.parse(req.body);
+      const requesterId = (req as express.Request & { userId?: string }).userId as string;
+      const deal = await dealService.createDealRequest({
+        carrierId: parsed.carrierId,
+        requesterId,
+        message: parsed.message,
+        startDate: parsed.startDate,
+        endDate: parsed.endDate,
+      });
+      res.status(201).json(deal);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Validation failed', details: error.issues });
+      }
+      if (error instanceof DealError) {
+        return res.status(error.statusCode).json({ error: error.message });
+      }
+      console.error('Error creating deal request:', error);
+      res.status(500).json({ error: 'Failed to create deal request' });
+    }
+  });
+
+  // GET /deals - 내가 보냈거나(Renter) 받은(Owner) 요청 목록
+  app.get('/deals', requireAuth, async (req, res) => {
+    try {
+      const userId = (req as express.Request & { userId?: string }).userId as string;
+      const deals = await dealService.listDealRequestsForUser(userId);
+      res.json({ items: deals });
+    } catch (error) {
+      console.error('Error listing deal requests:', error);
+      res.status(500).json({ error: 'Failed to list deal requests' });
+    }
+  });
+
+  app.get('/deals/:id', requireAuth, async (req, res) => {
+    try {
+      const userId = (req as express.Request & { userId?: string }).userId as string;
+      const deal = await dealService.getDealRequestById(req.params.id);
+      if (!deal) return res.status(404).json({ error: 'Deal request not found' });
+      if (deal.requesterId !== userId && deal.ownerId !== userId) {
+        return res.status(403).json({ error: 'Not a participant in this deal request' });
+      }
+      res.json(deal);
+    } catch (error) {
+      console.error('Error fetching deal request:', error);
+      res.status(500).json({ error: 'Failed to fetch deal request' });
+    }
+  });
+
+  // POST /deals/{id}/status - accept|decline|complete(owner-only)/cancel(either side)
+  app.post('/deals/:id/status', requireAuth, async (req, res) => {
+    try {
+      const schema = z.object({ status: z.enum(['accepted', 'declined', 'cancelled', 'completed']) });
+      const parsed = schema.parse(req.body);
+      const userId = (req as express.Request & { userId?: string }).userId as string;
+      const deal = await dealService.updateDealStatus({
+        dealRequestId: req.params.id,
+        actingUserId: userId,
+        nextStatus: parsed.status as DealRequestStatus,
+      });
+      res.json(deal);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Validation failed', details: error.issues });
+      }
+      if (error instanceof DealError) {
+        return res.status(error.statusCode).json({ error: error.message });
+      }
+      console.error('Error updating deal request status:', error);
+      res.status(500).json({ error: 'Failed to update deal request status' });
+    }
+  });
+
+  app.post('/deals/:id/messages', requireAuth, async (req, res) => {
+    try {
+      const schema = z.object({ body: z.string().min(1).max(2000) });
+      const parsed = schema.parse(req.body);
+      const userId = (req as express.Request & { userId?: string }).userId as string;
+      const message = await dealService.addChatMessage(req.params.id, userId, parsed.body);
+      res.status(201).json(message);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Validation failed', details: error.issues });
+      }
+      if (error instanceof DealError) {
+        return res.status(error.statusCode).json({ error: error.message });
+      }
+      console.error('Error sending chat message:', error);
+      res.status(500).json({ error: 'Failed to send chat message' });
+    }
+  });
+
+  // GET /deals/{id}/messages - 폴링 기반 채팅 조회 (신규 메시지 유무는 클라이언트가 주기적으로 재조회)
+  app.get('/deals/:id/messages', requireAuth, async (req, res) => {
+    try {
+      const userId = (req as express.Request & { userId?: string }).userId as string;
+      const messages = await dealService.listChatMessages(req.params.id, userId);
+      res.json({ items: messages });
+    } catch (error) {
+      if (error instanceof DealError) {
+        return res.status(error.statusCode).json({ error: error.message });
+      }
+      console.error('Error listing chat messages:', error);
+      res.status(500).json({ error: 'Failed to list chat messages' });
     }
   });
 
@@ -156,6 +475,11 @@ export function createApp() {
       const startDateStr = req.query.start_date as string;
       const endDateStr = req.query.end_date as string;
       const sort = (req.query.sort as string) || 'recommended';
+      // Optional: filter to a single city. Omitted/blank means "전체 도시"
+      // (no filter), matching pre-existing behavior for callers that don't
+      // send it (e.g. the E2E gate suite).
+      const cityParam = (req.query.city as string) || '';
+      const city = cityParam.trim() || undefined;
 
       if (!startDateStr || !endDateStr) {
         return res.status(400).json({
@@ -183,7 +507,8 @@ export function createApp() {
       const availableCarriers = await carrierService.getAvailableCarriersForRental(
         size as CarrierSize,
         startDate,
-        endDate
+        endDate,
+        city
       );
 
       const totalPrice = policyService.calculateTotalPrice(
@@ -198,6 +523,7 @@ export function createApp() {
         size: carrier.size,
         brandModel: carrier.brandModel,
         basePrice: carrier.basePrice,
+        city: carrier.city,
         thumbnailUrl: carrier.intakePhotoUrl,
         inspectionBadge: carrier.intakePhotoUrl ? '검수 사진 확인' : '검수 진행',
         totalPrice,
@@ -217,6 +543,7 @@ export function createApp() {
           startDate: startDateStr,
           endDate: endDateStr,
           rentalDays,
+          city: city || null,
         },
       });
     } catch (error) {
@@ -225,7 +552,43 @@ export function createApp() {
     }
   });
 
-  // GET /carriers/{id} - Get carrier details
+  // GET /carriers/cities - Cities that currently have rentable inventory for
+  // a given size/date range. Drives the renter-side city <select>, which is
+  // fully data-driven (no hardcoded city list) so it always reflects real
+  // availability instead of drifting out of sync with it.
+  app.get('/carriers/cities', async (req, res) => {
+    try {
+      const size = (req.query.size as string) || 'carry_on';
+      const startDateStr = req.query.start_date as string;
+      const endDateStr = req.query.end_date as string;
+
+      if (!startDateStr || !endDateStr) {
+        return res.status(400).json({
+          error: 'start_date and end_date query parameters are required',
+        });
+      }
+
+      const startDate = new Date(startDateStr);
+      const endDate = new Date(endDateStr);
+
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        return res.status(400).json({ error: 'Invalid date format' });
+      }
+
+      const cities = await carrierService.getCitiesWithAvailability(
+        size as CarrierSize,
+        startDate,
+        endDate
+      );
+
+      res.json({ cities });
+    } catch (error) {
+      console.error('Error fetching available cities:', error);
+      res.status(500).json({ error: 'Failed to fetch cities' });
+    }
+  });
+
+
   app.get('/carriers/:id', async (req, res) => {
     try {
       const carrier = await carrierService.getCarrierById(req.params.id);

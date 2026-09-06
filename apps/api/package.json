@@ -8,8 +8,7 @@
     "test:watch": "vitest",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
-    "dev": "tsx src/dev.ts",
-    "dev:db": "ts-node src/server.ts",
+    "dev": "tsx src/server.ts",
     "db:init": "node dist/scripts/init-db.js",
     "db:migrate": "psql $DATABASE_URL -f schema.sql"
   },
