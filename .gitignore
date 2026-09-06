@@ -3,3 +3,4 @@ apps/*/node_modules/
 apps/web/dist/
 apps/web/test-results/
 apps/api/uploads/
+apps/web/.env*.local

@@ -23,6 +23,24 @@ async function initializeDatabase() {
       console.log('[DB] Default policy already exists');
     }
 
+    // 2. Insert demo users used by the web frontend's MOCK_RENTER_ID /
+    // MOCK_PROVIDER_ID (apps/web/src/main.ts). Without these, provider/renter
+    // actions fail with a carriers_provider_id_fkey / bookings_renter_id_fkey
+    // violation on any freshly-created database.
+    const usersResult = await query(
+      `INSERT INTO users (id, email, name, role) VALUES
+        ('550e8400-e29b-41d4-a716-446655440000', 'renter@test.com', 'Renter', 'renter'),
+        ('550e8400-e29b-41d4-a716-446655440001', 'provider@test.com', 'Provider', 'provider')
+       ON CONFLICT (id) DO NOTHING
+       RETURNING id`
+    );
+
+    if (usersResult.rows.length > 0) {
+      console.log(`[DB] Demo users created: ${usersResult.rows.map((r) => r.id).join(', ')}`);
+    } else {
+      console.log('[DB] Demo users already exist');
+    }
+
     console.log('[DB] Database initialization completed successfully');
     await closePool();
     process.exit(0);

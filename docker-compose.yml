@@ -29,6 +29,7 @@ services:
       WEB_ORIGINS: http://localhost:3002,http://127.0.0.1:3002
       PAYMENT_WEBHOOK_SECRET: dev-payment-webhook-secret-change-me
       DELIVERY_WEBHOOK_SECRET: dev-delivery-webhook-secret-change-me
+      AUTH_TOKEN_SECRET: dev-auth-token-secret-change-me
     ports:
       - "3001:3001"
     depends_on:

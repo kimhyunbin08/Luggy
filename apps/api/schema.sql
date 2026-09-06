@@ -42,9 +42,16 @@ CREATE TABLE IF NOT EXISTS carriers (
   )),
   opt_in_rentable BOOLEAN DEFAULT false,
   intake_photo_url VARCHAR(500),
+  city VARCHAR(50) NOT NULL DEFAULT '서울',
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
+
+-- 3.1 Migration: add city to carriers created before this column existed
+-- (CREATE TABLE IF NOT EXISTS above is a no-op on already-existing tables,
+-- so this ALTER is required to bring staging/production DBs up to date.)
+ALTER TABLE carriers ADD COLUMN IF NOT EXISTS city VARCHAR(50) NOT NULL DEFAULT '서울';
+CREATE INDEX IF NOT EXISTS idx_carriers_city ON carriers(city);
 
 -- 4. Bookings (예약)
 CREATE TABLE IF NOT EXISTS bookings (
@@ -191,6 +198,59 @@ CREATE TABLE IF NOT EXISTS funnel_events (
   metadata JSONB,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
+
+-- 12. Auth (동네 직거래 모드는 실제 사용자 구분이 필요해 최소 이메일/비밀번호 인증 추가)
+-- password_hash is nullable so pre-existing demo/legacy rows (created before
+-- this migration, e.g. the seeded MOCK_RENTER_ID/MOCK_PROVIDER_ID users) keep
+-- working for the legacy platform-delivery flow, which never calls /auth/*.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255);
+
+-- 13. Carriers: 브랜드/모델 분리(AI 인식 결과 저장용), 동 단위 위치, 거래방식 구분
+-- brand/model are populated by AI photo recognition or manual entry and are
+-- additive to the existing brand_model free-text field (kept for the legacy
+-- flow's display strings, not removed).
+ALTER TABLE carriers ADD COLUMN IF NOT EXISTS brand VARCHAR(100);
+ALTER TABLE carriers ADD COLUMN IF NOT EXISTS model VARCHAR(100);
+-- dong: 행정동 단위 텍스트(예: "역삼동"). 정확한 상세주소는 저장하지 않는다(프라이버시).
+ALTER TABLE carriers ADD COLUMN IF NOT EXISTS dong VARCHAR(100);
+-- latitude/longitude: 동 중심 좌표 기준으로 저장(정확한 자택 좌표 아님, 지도 핀 표시용).
+ALTER TABLE carriers ADD COLUMN IF NOT EXISTS latitude DECIMAL(9, 6);
+ALTER TABLE carriers ADD COLUMN IF NOT EXISTS longitude DECIMAL(9, 6);
+-- deal_mode: 'direct'(동네 직거래, 신규 메인 플로우) vs 'platform'(기존 배송·결제·검수 플로우, 레거시 유지).
+ALTER TABLE carriers ADD COLUMN IF NOT EXISTS deal_mode VARCHAR(20) NOT NULL DEFAULT 'platform'
+  CHECK (deal_mode IN ('direct', 'platform'));
+CREATE INDEX IF NOT EXISTS idx_carriers_dong ON carriers(dong);
+CREATE INDEX IF NOT EXISTS idx_carriers_deal_mode ON carriers(deal_mode);
+
+-- 14. Deal Requests (동네 직거래 요청 — 당근마켓 스타일)
+-- Renter가 지도에서 캐리어를 보고 보내는 요청. 생성 즉시 채팅방 역할을 겸한다.
+-- 결제/배송/검수는 이 플로우에서 다루지 않는다(당사자 간 직접 조율, PRD/TRD §Deferred 참조).
+CREATE TABLE IF NOT EXISTS deal_requests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  carrier_id UUID NOT NULL REFERENCES carriers(id) ON DELETE CASCADE,
+  requester_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status VARCHAR(20) NOT NULL DEFAULT 'requested' CHECK (status IN (
+    'requested', 'accepted', 'declined', 'cancelled', 'completed'
+  )),
+  start_date DATE,
+  end_date DATE,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_deal_requests_carrier ON deal_requests(carrier_id);
+CREATE INDEX IF NOT EXISTS idx_deal_requests_requester ON deal_requests(requester_id);
+CREATE INDEX IF NOT EXISTS idx_deal_requests_owner ON deal_requests(owner_id);
+
+-- 15. Chat Messages (요청 1건당 1:1 채팅 스레드)
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  deal_request_id UUID NOT NULL REFERENCES deal_requests(id) ON DELETE CASCADE,
+  sender_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  body TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_deal ON chat_messages(deal_request_id, created_at);
 
 -- Indexes for performance
 CREATE INDEX idx_carriers_provider ON carriers(provider_id);

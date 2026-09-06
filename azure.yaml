@@ -1,0 +1,41 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+name: luggy
+metadata:
+  template: luggy@0.1.0
+
+# `azd up` normally overlaps packaging (Docker build) with provisioning to
+# save time. That overlap is unsafe here: web's Docker build needs
+# SERVICE_API_URI (an output only known once `provision` finishes), so an
+# overlapped build silently falls back to the Dockerfile's localhost default.
+# Force a strict provision -> package -> deploy order instead.
+workflows:
+  up:
+    - azd: provision
+    - azd: package --all
+    - azd: deploy --all
+
+services:
+  api:
+    project: apps/api
+    host: containerapp
+    language: js
+    docker:
+      path: Dockerfile
+      context: ../../
+
+  web:
+    project: apps/web
+    host: containerapp
+    language: js
+    docker:
+      path: Dockerfile
+      context: ../../
+      # The API's public URL is only known after `azd provision` creates the
+      # Container App; SERVICE_API_URI comes from infra/main.bicep's output
+      # and is inlined into the static bundle at build time.
+      # VITE_KAKAO_MAP_KEY comes from a plain azd env var (`azd env set
+      # VITE_KAKAO_MAP_KEY ...`), not a Bicep output — it's an external key
+      # the user obtains from Kakao Developers, not an Azure resource.
+      buildArgs:
+        - VITE_API_URL=${SERVICE_API_URI}
+        - VITE_KAKAO_MAP_KEY=${VITE_KAKAO_MAP_KEY}

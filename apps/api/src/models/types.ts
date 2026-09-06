@@ -41,6 +41,30 @@ export interface User {
   updatedAt: Date;
 }
 
+/** '동네 직거래' 요청/채팅 상태. 결제/배송/검수를 거치지 않는 별도 플로우(레거시 Booking과 무관). */
+export type DealRequestStatus = 'requested' | 'accepted' | 'declined' | 'cancelled' | 'completed';
+export type CarrierDealMode = 'direct' | 'platform';
+
+export interface DealRequest {
+  id: string;
+  carrierId: string;
+  requesterId: string;
+  ownerId: string;
+  status: DealRequestStatus;
+  startDate?: string;
+  endDate?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ChatMessage {
+  id: string;
+  dealRequestId: string;
+  senderId: string;
+  body: string;
+  createdAt: Date;
+}
+
 export interface PolicyVersion {
   id: string;
   versionNumber: string;
@@ -62,11 +86,21 @@ export interface Carrier {
   providerId: string;
   size: CarrierSize;
   brandModel: string;
+  /** AI 사진 인식 또는 수동 입력으로 채워지는 분리된 브랜드/모델명 (신규 '동네 직거래' 모드). */
+  brand?: string;
+  model?: string;
   basePrice: number;
   condition: string;
   status: CarrierStatus;
   optInRentable: boolean;
   intakePhotoUrl?: string;
+  city: string;
+  /** 행정동 단위 위치 텍스트(상세주소 아님, 프라이버시 보호). */
+  dong?: string;
+  latitude?: number;
+  longitude?: number;
+  /** 'direct' = 동네 직거래(신규 메인), 'platform' = 기존 배송·결제·검수(레거시, 유지). */
+  dealMode: CarrierDealMode;
   createdAt: Date;
   updatedAt: Date;
 }
