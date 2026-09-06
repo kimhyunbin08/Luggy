@@ -262,3 +262,127 @@
    1. 회원가입/로그인 후 캐리어 지도 조회
    2. 요청 생성 → Provider 수락 → 채팅 메시지 교환
    3. AI 미설정 환경에서 AI 등록 엔드포인트가 503로 안전하게 저하되는지 확인(하드 장애 아님)
+
+## 17. 3차 파일럿 고도화: 지도 탐색 + 실시간 채팅·약속 조율 (기술 요구사항)
+`prd.md` §20 참조. §1~§16의 legacy/1차 파일럿 요구사항은 그대로 유지하며(변경/삭제 없음),
+이 라운드의 모든 변경은 스키마/API 레벨에서 **additive**로만 적용해 기존 E2E 게이트(§13.3,
+§16.6)를 깨뜨리지 않는다.
+
+### 17.1 기술 스택 추가
+1. **실시간 채팅:** Node.js `ws`(WebSocket) 라이브러리 기반 자체 구현. 기존 API Container
+   App(`infra/resources.bicep`의 `apiApp`) ingress가 이미 `transport: 'auto'`로 설정돼 있어
+   WebSocket 업그레이드를 별도 인프라 변경 없이 그대로 지원하며, readiness probe는
+   `/health`라는 별도 HTTP 경로를 사용하므로 신규 `/ws/deals/{id}` 라우트와 충돌하지 않는다
+   (Bicep 변경 불필요). 신규 관리형 서비스(Azure Web PubSub 등)는 이번 라운드에서 도입하지
+   않는다(트래픽 증가 시 후속 검토 대상, `ideation.md` §14.5 참조). 클라이언트는 재연결 시
+   REST(`GET /deals/{id}/messages`)로 이력을 재조회해 메시지 유실을 방지한다(WebSocket은
+   지연 제거용 보강이지 유일한 전달 경로가 아니다).
+   - **다중 레플리카 주의(3모델 교차검증 발견):** `apiApp`은 `maxReplicas: 3`으로 스케일아웃될
+     수 있어, 인메모리 `ws` 브로드캐스트만으로는 서로 다른 레플리카에 연결된 참여자 간
+     메시지가 전달되지 않는다. 신규 외부 서비스(Redis 등) 도입 없이, 이미 사용 중인
+     Postgres의 `LISTEN/NOTIFY`를 레플리카 간 fan-out 백플레인으로 사용한다: 메시지
+     INSERT 후 `NOTIFY deal_chat, '<deal_request_id>'`를 실행하고, 각 레플리카는 기동 시
+     전용 커넥션으로 `LISTEN deal_chat`을 유지하다가 알림을 받으면 자신에게 연결된 해당
+     채널의 WebSocket 클라이언트에게만 재브로드캐스트한다(NOTIFY payload는 Postgres 제약상
+     8000바이트 이하로, 메시지 본문 전체가 아닌 id만 전달하고 수신 측이 필요시 REST로
+     조회한다).
+   - **인증(3모델 교차검증 발견):** 브라우저 `WebSocket` API는 커스텀 `Authorization` 헤더를
+     지정할 수 없으므로, 세션 토큰은 `GET /ws/deals/{id}?token=<session_token>` 쿼리
+     파라미터로 전달하고 서버가 업그레이드 시점에 1회 검증한다(§17.3 #5, §17.5).
+2. **반경 검색:** PostGIS 등 신규 공간 확장 없이, `carriers.latitude/longitude`(동 중심 좌표)
+   기준 Haversine 공식을 SQL에서 직접 계산한다(`ideation.md` §14.5 근거 — 현재 데이터
+   규모에서 공간 인덱스는 과설계).
+
+### 17.2 데이터 요구사항 추가
+- `deal_requests.requester_last_read_at`, `deal_requests.owner_last_read_at`
+  (TIMESTAMPTZ, nullable): 참여자별 마지막 읽음 시각. 미읽음 개수는
+  `COUNT(chat_messages WHERE created_at > COALESCE(해당 last_read_at, 'epoch'::timestamptz)
+  AND sender_id != 조회자)`로 계산한다(3모델 교차검증 발견: `last_read_at`이 초기 NULL인
+  경우 `created_at > NULL`이 항상 거짓으로 평가돼 미읽음이 0으로 오집계되므로 `COALESCE`로
+  방지한다).
+- `chat_messages.message_type` (VARCHAR, DEFAULT `'text'`, CHECK IN (`'text'`,
+  `'meeting_proposal'`)): 일반 메시지와 약속 제안 메시지를 구분한다. 기존
+  `chat_messages.body`(NOT NULL) 제약은 그대로 유지하며, `meeting_proposal` 메시지도
+  `body`에 사람이 읽을 수 있는 짧은 안내문(예: "내일 저녁 7시에 만나요")을 함께 저장한다
+  (구조화 필드를 렌더링하지 못하는 클라이언트에서도 채팅 말풍선이 비지 않도록 함; 3모델
+  교차검증 발견 — `body`를 nullable로 바꾸는 스키마 변경 대신 이 방식을 택해 제약 변경을
+  피한다).
+- `chat_messages.meeting_time` (TIMESTAMPTZ, nullable), `chat_messages.meeting_location`
+  (TEXT, nullable): `message_type = 'meeting_proposal'`일 때만 값이 채워지며, 이때
+  `meeting_time`은 필수, `meeting_location`은 선택이다. `message_type = 'text'`일 때는 두
+  필드 모두 NULL이어야 한다(API 레벨에서 강제, §17.3 #2).
+- 신규 컬럼은 모두 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`로 추가해 배포된
+  스테이징/프로덕션 DB와 하위 호환을 보장한다(구현 시점에 `DEPLOYMENT.md` 마이그레이션
+  절 갱신 필요).
+- 가격 필터는 기존 `carriers.base_price`(직거래 모드에서는 Provider가 직접 설정한 희망가,
+  `prd.md` §19.5)를 그대로 사용하며 신규 컬럼을 추가하지 않는다.
+
+### 17.3 API 요구사항 추가/변경
+1. `GET /carriers/map` 파라미터 확장: `lat`, `lng`, `radiusKm`(1|3|5, 기본 3), `minPrice`,
+   `maxPrice`, `startDate`, `endDate` — 반경/가격/기간 필터를 동시 적용하고, 응답 항목에
+   `distanceKm`(요청 좌표 기준 계산값)을 포함해 거리순 정렬한다. `lat`/`lng` 미전달 시
+   반경 필터는 무시된다(기존 응답 형태와 하위 호환 유지). 기간 필터(`startDate`~`endDate`)는
+   해당 캐리어에 걸린 `deal_requests` 중 상태가 `accepted`이고 기간이 겹치는 건
+   (`start_date < endDate AND end_date > startDate`)이 있으면 목록에서 제외한다.
+   `requested`/`declined`/`cancelled`/`completed` 상태는 가용성 판정에 영향을 주지 않는다
+   (3모델 교차검증 발견 — 기존 `deal_requests.start_date/end_date` 컬럼을 재사용, 신규
+   컬럼 불필요).
+2. `POST /deals/{id}/messages` 요청 바디에 `messageType`(`'text'`|`'meeting_proposal'`,
+   기본 `'text'`), `meetingTime`, `meetingLocation`(옵션) 추가. 서버는
+   `messageType='meeting_proposal'`일 때 `meetingTime`을 필수로, `messageType='text'`일
+   때는 `meetingTime`/`meetingLocation`이 비어 있도록 검증한다(400 반환).
+3. `POST /deals/{id}/read` (신규, 인증 필요, 참여자만) — 호출자의 `last_read_at`을 현재
+   시각으로 갱신.
+4. `GET /deals` 응답의 각 항목에 **호출자 기준** 미읽음 개수(`unreadCount`, integer)를
+   포함한다(요청자/소유자 중 API를 호출한 쪽의 관점으로만 계산; 3모델 교차검증 발견 —
+   "참여자별"이라는 기존 표현이 양쪽 값을 모두 반환하는 것으로 오해될 수 있어 명확화).
+5. `GET /ws/deals/{id}` (신규 WebSocket 업그레이드 엔드포인트, 참여자만) — 브라우저
+   `WebSocket` API가 커스텀 헤더를 지원하지 않으므로 세션 토큰은
+   `?token=<session_token>` 쿼리 파라미터로 전달받아 업그레이드 시점에 1회 검증한다.
+   참여자가 아니거나 토큰이 유효하지 않으면 연결을 거부한다(§16.5 보안 요구사항과 동일
+   원칙 적용). 연결 이후 레플리카 간 메시지 전파는 §17.1의 Postgres `LISTEN/NOTIFY`
+   백플레인을 따른다.
+
+### 17.4 상태/이벤트 요구사항 추가
+1. WebSocket 미연결/재연결 구간에도 REST 폴백이 항상 동작해야 한다.
+2. `message_type='meeting_proposal'` 메시지는 `deal_requests.status` 상태 전이(§16.4)에
+   영향을 주지 않는다(단순 메시지 서브타입). "상대가 약속을 확정한다"는 것은 이번
+   라운드에서는 별도 승인 API/메시지 서브타입 없이, 상대가 일반 텍스트 메시지(예: "네
+   좋아요")로 답하는 UI 상의 흐름으로만 처리한다(3모델 교차검증 발견 — `ideation.md`
+   §14.3/`prd.md` §20.3의 "확정" 표현이 DB 상태 변경을 암시하지 않도록 명확화. 구조화된
+   수락/거절 응답은 신뢰·안전 기능과 함께 다음 라운드에서 검토).
+
+### 17.5 보안/개인정보 요구사항 추가
+1. WebSocket 연결은 §16.5와 동일하게 참여자만 허용하며, 서버가 매 연결/메시지마다 참여자
+   여부를 재검증한다.
+2. 약속 장소(`meeting_location`)는 자유 텍스트이며 서버가 형식을 강제하지 않는다(정확한
+   자택 주소 입력을 유도하지 않기 위해 안내 문구로만 유도, `prd.md` §20.4).
+
+### 17.6 테스트 시나리오 추가
+1. **Unit:** Haversine 거리 계산 정확도(알려진 좌표쌍 기준 오차 허용범위 내 검증), 반경
+   경계값(정확히 반경 경계에 걸친 케이스), 미읽음 개수 계산(다중 메시지·다중 열람 시각
+   조합, `last_read_at`이 NULL인 초기 상태 포함), `messageType='text'`/`'meeting_proposal'`
+   요청 바디 검증 규칙(필수/금지 필드 조합)
+2. **Integration:** 반경+가격+기간 동시 필터 결과 정확성(기간 필터의 `accepted` 요청 겹침
+   제외 규칙 포함), WebSocket 연결→메시지 송수신→REST 이력 조회 정합성, 제3자 WebSocket
+   연결 거부, `POST /deals/{id}/read` 이후 미읽음 개수 0 반영, 서로 다른 레플리카에 연결된
+   두 참여자 간 메시지가 Postgres `LISTEN/NOTIFY` 백플레인을 통해 정상 전달되는지 확인
+   (다중 레플리카 시뮬레이션), `message_type='meeting_proposal'` 메시지 송수신 전후
+   `deal_requests.status`가 불변인지 확인
+3. **E2E 게이트(신규, legacy 3종·1차 파일럿 3종과 별개):**
+   1. 반경 필터 적용 후 결과가 거리순으로 정렬되어 노출되는지 확인
+   2. 실시간 채팅으로 메시지가 폴링 없이 상대 화면에 반영되는지 확인
+   3. 약속 제안 메시지 전송 → 수신자 화면에 시간/장소가 구분된 UI로 표시되는지 확인
+
+### 17.7 검증 결과 (3모델 반영)
+Gemini/Codex/Kimi 3개 모델로 §17 초안을 교차검증하고 아래를 반영했다(§15와 동일한 절차).
+1. WebSocket 다중 레플리카 fan-out 누락 → Postgres `LISTEN/NOTIFY` 백플레인 추가(§17.1)
+2. 미읽음 개수 SQL의 `last_read_at` NULL 오집계 → `COALESCE` 처리(§17.2)
+3. 브라우저 WebSocket 인증 방식 미정 → 쿼리 파라미터 `?token=` 방식으로 확정(§17.1, §17.3 #5)
+4. 직거래 기간 필터의 가용성 판정 기준 미정 → `deal_requests.accepted` 겹침 배제 규칙 명시(§17.3 #1)
+5. 약속 제안 "확정"의 상태/스키마 처리 모호 → 이번 라운드는 UI 상 일반 텍스트 응답으로만
+   처리(신규 상태/메시지 서브타입 없음)로 명확화(§17.4)
+6. `chat_messages.body NOT NULL`과 `meeting_proposal` 충돌 가능성 → 스키마 변경 대신 캡션
+   병행 저장으로 해결(§17.2)
+7. 문서 간 API/용어 사소한 불일치(`AGENTS.md` §7-2 누락 항목, "참여자별" 표현, "파일럿
+   2라운드" 표기) → 동기화 완료
