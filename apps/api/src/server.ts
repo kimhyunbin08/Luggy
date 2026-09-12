@@ -110,7 +110,9 @@ export function createApp() {
       );
     }
 
-    const result = filtered.map((c) => ({
+    const sort = (req.query.sort as string) || 'recommended';
+
+    let result = filtered.map((c) => ({
       id: c.id,
       size: c.size,
       brandModel: c.brandModel,
@@ -139,7 +141,16 @@ export function createApp() {
       totalPrice: calculateTotalPrice(c.size, start, end, defaultPolicy),
       remainingQuantity: c.remainingQuantity
     }));
-    res.json({ sort: req.query.sort || 'recommended', items: result });
+
+    if (sort === 'price_asc') {
+      result.sort((a, b) => a.dailyPrice - b.dailyPrice);
+    } else if (sort === 'price_desc') {
+      result.sort((a, b) => b.dailyPrice - a.dailyPrice);
+    } else if (sort === 'rating_desc') {
+      result.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+    }
+
+    res.json({ sort, items: result });
   });
 
   app.get('/carriers/:id', (req: Request, res: Response) => {
@@ -188,6 +199,19 @@ export function createApp() {
 
   app.get('/contact-requests', (_req: Request, res: Response) => {
     res.json({ requests: contactRequests });
+  });
+
+  app.post('/contact-requests/:id/status', (req: Request, res: Response) => {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const reqItem = contactRequests.find((r) => r.id === id);
+    if (!reqItem) return res.status(404).json({ message: 'contact request not found' });
+
+    const schema = z.object({
+      status: z.enum(['pending', 'accepted', 'completed', 'cancelled'])
+    });
+    const parsed = schema.parse(req.body);
+    reqItem.status = parsed.status;
+    res.json({ ok: true, contactRequest: reqItem });
   });
 
   app.post('/bookings', (req: Request, res: Response) => {
