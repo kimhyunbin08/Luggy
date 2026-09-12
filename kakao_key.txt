@@ -1,0 +1,5 @@
+# 카카오 지도 JavaScript App Key 입력 파일
+# 아래에 발급받으신 카카오 JavaScript 키만 입력후 저장해주세요.
+# 예시: 1234567890abcdef1234567890abcdef
+
+KAKAO_JAVASCRIPT_KEY=
