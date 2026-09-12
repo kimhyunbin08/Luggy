@@ -391,6 +391,10 @@
 
         <div class="map-wrapper">
           <div class="map-banner">
+    <div>
+      <span>📍 지도 핀을 클릭하거나 매물에서 소유자에게 직접 1:1 대여 문의를 보내보세요!</span>
+      <span style="font-size: 11px; margin-left: 10px; color: var(--text-secondary);">(기본: OpenStreetMap / 카카오 지도 API 연동 지원)</span>
+    </div>
             <span>📍 지도 핀을 클릭하거나 아래 매물에서 소유자에게 직접 1:1 대여 문의를 보내보세요!</span>
             <span id="map-count-badge">4개 매물 표시중</span>
           </div>
@@ -577,7 +581,34 @@
         }
       }
 
+      
       function renderMapPins(items) {
+        if (isKakaoMap && window.kakao && window.kakao.maps) {
+          markers.forEach(m => m.setMap(null));
+          markers = [];
+          if (items.length === 0) return;
+
+          const bounds = new kakao.maps.LatLngBounds();
+          items.forEach(item => {
+            if (!item.lat || !item.lng) return;
+            const loc = new kakao.maps.LatLng(item.lat, item.lng);
+            bounds.extend(loc);
+
+            const marker = new kakao.maps.Marker({ position: loc, map: map });
+            const infowindow = new kakao.maps.InfoWindow({
+              content: `<div style="padding:8px;font-size:12px;"><strong>${item.brandModel}</strong><br/>${item.dailyPrice.toLocaleString()}원/일</div>`
+            });
+            kakao.maps.event.addListener(marker, 'click', () => {
+              infowindow.open(map, marker);
+              openContactModal(item.id);
+            });
+            markers.push(marker);
+          });
+          map.setBounds(bounds);
+          document.getElementById('map-count-badge').innerText = `${items.length}개 매물 표시중 (카카오 지도)`;
+          return;
+        }
+
         markers.forEach(m => map.removeLayer(m));
         markers = [];
 
@@ -604,8 +635,9 @@
           map.fitBounds(bounds, { padding: [40, 40] });
         }
 
-        document.getElementById('map-count-badge').innerText = `${items.length}개 매물 표시중`;
+        document.getElementById('map-count-badge').innerText = `${items.length}개 매물 표시중 (OpenStreetMap/카카오지동 지원)`;
       }
+
 
       function renderCarrierCards(items) {
         const grid = document.getElementById('carrier-card-grid');
