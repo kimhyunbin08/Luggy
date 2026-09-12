@@ -4,3 +4,6 @@ dist/
 *.log
 test-results/
 playwright-report/
+.env
+apps/web/.env
+
