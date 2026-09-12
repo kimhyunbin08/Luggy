@@ -198,7 +198,7 @@
 
       #map {
         width: 100%;
-        height: 360px;
+        height: 380px;
         z-index: 1;
       }
 
@@ -212,26 +212,6 @@
         font-size: 13px;
         color: var(--accent-orange);
         font-weight: 600;
-        flex-wrap: wrap;
-        gap: 8px;
-      }
-
-      .kakao-key-box {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        background: #ffffff;
-        padding: 4px 8px;
-        border-radius: var(--radius-sm);
-        border: 1px solid rgba(255, 111, 15, 0.3);
-      }
-
-      .kakao-key-input {
-        border: none;
-        outline: none;
-        font-size: 12px;
-        width: 180px;
-        padding: 2px 4px;
       }
 
       /* Product Grid */
@@ -411,14 +391,7 @@
 
         <div class="map-wrapper">
           <div class="map-banner">
-            <div>
-              <span>📍 지도 핀을 클릭하여 소유자에게 1:1 대여 문의를 보내세요!</span>
-            </div>
-            <div class="kakao-key-box">
-              <span style="font-size: 11px; color: var(--text-secondary);">🟡 카카오 지도 API 키:</span>
-              <input type="text" id="input-kakao-key" class="kakao-key-input" placeholder="Javascript Key 입력" />
-              <button onclick="applyKakaoKey()" style="border: none; background: #ffe800; color: #3c1e1e; font-weight: 700; padding: 3px 8px; border-radius: 4px; font-size: 11px; cursor: pointer;">적용</button>
-            </div>
+            <span>📍 지도 핀을 클릭하여 소유자에게 1:1 대여 문의를 보내보세요!</span>
             <span id="map-count-badge" style="font-size: 12px; font-weight: 700;">4개 매물 표시중</span>
           </div>
           <div id="map"></div>
@@ -527,8 +500,10 @@
       </div>
     </div>
 
-    <!-- Leaflet JS for Map (Default Fallback) -->
+    <!-- Leaflet JS for Map (Default Zero-Config Fallback) -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Global Map Initialization -->
     <script>
       const API_BASE = 'http://localhost:3001';
       let map = null;
@@ -536,6 +511,9 @@
       let currentCarriers = [];
       let selectedCarrier = null;
       let isKakaoMap = false;
+
+      // Global Kakao Map Key configuration (Loaded from VITE_KAKAO_MAP_KEY environment variable or window config)
+      const KAKAO_KEY = (import.meta.env && import.meta.env.VITE_KAKAO_MAP_KEY) || window.KAKAO_APP_KEY || '';
 
       function logFunnelEvent(eventName, payload = {}) {
         const box = document.getElementById('event-log-box');
@@ -565,19 +543,11 @@
         }
       }
 
-      function applyKakaoKey() {
-        const key = document.getElementById('input-kakao-key').value.trim();
-        if (!key) {
-          alert('카카오 JavaScript 앱 키를 입력해주세요.');
-          return;
-        }
-        loadKakaoMapSdk(key);
-      }
-
-      function loadKakaoMapSdk(appKey) {
+      function loadKakaoMapSdkGlobally(appKey) {
+        if (!appKey) return false;
         if (window.kakao && window.kakao.maps) {
           initKakaoMap();
-          return;
+          return true;
         }
         const script = document.createElement('script');
         script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${appKey}&autoload=false`;
@@ -586,10 +556,8 @@
             initKakaoMap();
           });
         };
-        script.onerror = () => {
-          alert('카카오 지도 SDK 로드에 실패했습니다. 올바른 Javascript 키인지 확인해주세요.');
-        };
         document.head.appendChild(script);
+        return true;
       }
 
       function initKakaoMap() {
@@ -599,12 +567,13 @@
         const options = { center: new kakao.maps.LatLng(37.5100, 127.0100), level: 6 };
         map = new kakao.maps.Map(container, options);
         isKakaoMap = true;
-        alert('🟡 카카오 지도로 성공적으로 전환되었습니다!');
         if (currentCarriers.length > 0) renderMapPins(currentCarriers);
       }
 
       function initMap() {
         if (map) return;
+        if (KAKAO_KEY && loadKakaoMapSdkGlobally(KAKAO_KEY)) return;
+
         map = L.map('map').setView([37.5100, 127.0100], 12);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
           maxZoom: 18,
@@ -696,7 +665,7 @@
           map.fitBounds(bounds, { padding: [40, 40] });
         }
 
-        document.getElementById('map-count-badge').innerText = `${items.length}개 매물 표시중 (기본 지도)`;
+        document.getElementById('map-count-badge').innerText = `${items.length}개 매물 표시중`;
       }
 
       function renderCarrierCards(items) {
