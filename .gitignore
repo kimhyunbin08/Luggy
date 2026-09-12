@@ -5,7 +5,11 @@ dist/
 test-results/
 playwright-report/
 .env
+*.env
+.env.*
 apps/web/.env
+kakao_key.txt
+apps/web/public/kakao_key.txt
 
 
 
