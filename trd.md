@@ -1,62 +1,51 @@
-# TRD: Luggy Web MVP (v0.2)
+# TRD: Luggy Web MVP (v0.3 - 지도 기반 C2C 렌탈)
 
 ## 1. 문서 목적
 - `ideation.md`, `prd.md`를 구현 가능한 기술 요구사항으로 고정한다.
-- Web MVP 개발/배포/테스트의 공통 기준을 정의한다.
-- 기존 `architecture.md`의 시스템 구조/상태 전이/데이터/API/워커 내용을 본 문서에 통합한다.
+- 지도 기반 당근마켓 스타일 C2C 캐리어 대여 플랫폼의 기술 스택, API, 데이터 모델을 정의한다.
 
 ## 2. 범위
 ### 2.1 In Scope (Web MVP 1차)
-1. OTA 스타일 웹 퍼널(검색→결제 3단계)
-2. 예약/결제/배송상태/취소·환불 정책 반영
-3. Provider 보관 신청/입고/렌탈 Opt-in
-4. 검수 사진 업로드/조회
-5. 정책 버전 관리(`policy_versions`)
-6. Azure 스테이징/프로덕션 분리 배포
+1. 지도(Map) 기반 주변 캐리어 매물 검색 & 리스트 뷰
+2. Owner 직접 캐리어 등록 (동네/위치, 일일 대여료, 사진, 가능 일정)
+3. 1:1 직접 문의/채팅 (PG 결제 연동 없이 직거래 연결)
+4. Apple HIG 기반 깔끔한 대시보드 및 지도/리스트 UI
 
 ### 2.2 Out of Scope (Deferred)
-1. 실거래 20건 공헌이익 게이트 자동 판정
-2. 연체/분실/추가청구 전면 자동화
-3. 다중 창고 라우팅, 멤버십/구독
+1. PG 온라인 자동 결제 & 수수료자동 정산
+2. 택배 배송 연동 및 중앙 창고 보관
+3. 자동 계약서 작성 및 법적 분쟁 자동 처리
 
-## 3. 기술 스택 (초기안)
-1. **Frontend:** Next.js + TypeScript + Tailwind CSS
-2. **Backend API:** Node.js (NestJS 또는 Express+Zod) + TypeScript
-3. **DB:** Azure Database for PostgreSQL Flexible Server
-4. **Storage:** Azure Blob Storage (검수 이미지)
-5. **Queue:** Azure Service Bus
-6. **Runtime:** Azure Container Apps (API/Worker), Static Web Apps(Frontend)
-7. **Observability:** Application Insights + Log Analytics
-8. **Secrets:** Azure Key Vault
+## 3. 기술 스택
+1. **Frontend:** HTML5 / Vite / React / Leaflet (또는 SVG/Canvas 기반 인터랙티브 지도 컴포넌트)
+2. **Backend API:** Node.js (Express + Zod) + TypeScript
+3. **Data/Storage:** In-memory / PostgreSQL
+4. **Design System:** Apple Human Interface Guidelines (HIG)
 
 ## 4. 기능 요구사항 (기술 관점)
 ### 4.1 프론트엔드
-1. 첫 화면(Above the fold)에 날짜/사이즈/수령지 검색 폼 고정 노출
-2. 검색 결과 기본 정렬 `recommended`
-3. 카드 필수 필드: 썸네일, 브랜드/모델명, 평점배지, 리뷰수, 검수배지, 희소성 문구, 원가 취소선, 총결제액, 도착예정, 남은 수량
-4. 결제 플로우 3단계 고정: 옵션선택 → 정보입력 → 결제
-5. 프론트엔드 UI 시스템은 Apple Human Interface Guidelines(HIG)를 준수한다(명확한 위계, 일관된 컴포넌트 행태, 적절한 모션, 충분한 대비/터치 타깃).
-6. 테마는 옅은 웜/쿨 그레이 배경 + 딥 네이비/딥 그린 프라이머리 + 코랄/오렌지/레드 CTA 단색 솔리드로 구성하되, HIG의 가독성/접근성 기준을 우선한다.
-7. 접근성을 해치는 과도한 시각효과(과한 블러, 장식성 그라디언트, 과도한 pill 스타일)는 금지한다.
+1. 메인 화면에 대화형 지도(Map View)와 주변 매물 리스트(List View) 동시 제공
+2. 지도상 캐리어 핀(Pin) 클릭 시 해당 캐리어 정보 팝업 및 상세 진입
+3. Owner 캐리어 직접 등록 폼 (동네/위치 핀 찍기, 규격, 일일 대여료, 이미지 URL)
+4. Renter의 소유자 1:1 직접 문의하기 (Direct Contact/Chat Request) 모달 및 메시지 전송
+5. PG 결제 없이 직접 협의 후 예약 상태(문의중 -> 예약 확정 -> 대여중 -> 반납 완료) 전이
 
-### 4.2 백엔드
-1. 최소 대여기간 2일 검증
-2. 총결제액 = 대여료 + 왕복배송비 계산
-3. 취소/환불 정책(48시간/24시간/이후) 계산
-4. 검수 사진 최소 1장 제약
-5. 배송 상태 동기화(접수/이동중/도착/지연)
-6. 정산 분배 계산(총결제액 기준 80/20)
-7. 보증금(기내용 3만원/중형 5만원) 승인/환불 처리
-8. 파손/분실 클레임 기록 및 정산 보류/재개
-9. 금전 이벤트 ledger 이중기록 + idempotency 보장
-10. 보증 적립 인출 트리거(클레임 확정 후 Renter 청구 실패/회수 부족분) 처리
+### 4.2 백엔드 API
+1. `GET /renters/search`: 지도 위치 기반(위도, 경도, 반경, 규격, 일정) 주변 캐리어 조회
+2. `GET /carriers/:id`: 특정 캐리어 상세 조회 (소유자 정보, 위치 좌표, 가격)
+3. `POST /providers/carriers`: 소유자 캐리어 직접 등록 (위치, 가격, 규격, 사진)
+4. `POST /contact-requests`: 1:1 직접 문의 및 직거래 예약 요청 생성
+5. `GET /contact-requests`: 내 문의/거래 내역 목록 조회
 
-## 5. 데이터 요구사항
-### 5.1 필수 엔티티
-- `users`, `carriers`, `carrier_storage_contracts`, `bookings`, `pricing_snapshots`
-- `payments`, `delivery_orders`, `inspections`, `inspection_photos`, `damage_claims`
-- `settlements`, `ledger_entries`, `cost_entries`, `policy_versions`
-- `search_logs`, `funnel_events`, `ranking_snapshots`, `event_logs`
+## 5. 데이터 엔티티
+- `users` (id, name, district, contact)
+- `carriers` (id, ownerId, size, brandModel, dailyPrice, lat, lng, district, photoUrl, available)
+- `contact_requests` (id, carrierId, renterId, startDate, endDate, status, message)
+
+## 6. UI 시스템
+- Apple Human Interface Guidelines (HIG) 원칙 가이드라인 준수.
+- 깔끔한 라이트/그레이 배경, 명확한 지도 위젯, 딥 네이비 프라이머리, 가독성 높은 가격 폰트 사용.
+
 
 ### 5.2 데이터 규칙
 1. 예약 생성 시 `end_date >= start_date + 2 days`
