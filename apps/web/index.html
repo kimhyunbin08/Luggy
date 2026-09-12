@@ -3,10 +3,787 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Luggy</title>
-    <script type="module" src="/src/main.ts"></script>
+    <title>Luggy - 지도 기반 C2C 이웃 캐리어 대여 | Web MVP</title>
+    <!-- Leaflet CSS for Map (Zero-config Default Fallback) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+      :root {
+        --bg-color: #f5f5f7;
+        --card-bg: #ffffff;
+        --text-primary: #1d1d1f;
+        --text-secondary: #86868b;
+        --accent-orange: #ff6f0f;
+        --accent-orange-hover: #e55e00;
+        --accent-navy: #0b3a82;
+        --accent-green: #12805c;
+        --border-color: rgba(0, 0, 0, 0.08);
+        --radius-lg: 18px;
+        --radius-md: 12px;
+        --radius-sm: 8px;
+        --shadow-subtle: 0 4px 20px rgba(0, 0, 0, 0.04);
+        --shadow-card: 0 8px 30px rgba(0, 0, 0, 0.06);
+      }
+
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;
+        background-color: var(--bg-color);
+        color: var(--text-primary);
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 1000;
+        background: rgba(255, 255, 255, 0.88);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      .nav-container {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 14px 24px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .logo-group {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .logo {
+        font-size: 22px;
+        font-weight: 800;
+        letter-spacing: -0.5px;
+        color: var(--accent-orange);
+        text-decoration: none;
+      }
+
+      .badge-mvp {
+        background: rgba(255, 111, 15, 0.1);
+        color: var(--accent-orange);
+        font-size: 11px;
+        font-weight: 700;
+        padding: 3px 8px;
+        border-radius: 20px;
+      }
+
+      .nav-tabs {
+        display: flex;
+        background: rgba(0, 0, 0, 0.04);
+        padding: 4px;
+        border-radius: 12px;
+        gap: 4px;
+      }
+
+      .nav-btn {
+        border: none;
+        background: transparent;
+        padding: 8px 16px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+
+      .nav-btn.active {
+        background: #ffffff;
+        color: var(--text-primary);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+      }
+
+      main {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 28px 24px 64px;
+      }
+
+      .tab-content { display: none; }
+      .tab-content.active { display: block; }
+
+      .search-card {
+        background: var(--card-bg);
+        border-radius: var(--radius-lg);
+        padding: 24px;
+        box-shadow: var(--shadow-card);
+        border: 1px solid var(--border-color);
+        margin-bottom: 24px;
+      }
+
+      .search-title {
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: -0.4px;
+        margin-bottom: 16px;
+      }
+
+      .search-grid {
+        display: grid;
+        grid-template-columns: 2fr 1fr 1fr 1fr;
+        gap: 12px;
+        align-items: end;
+      }
+
+      @media (max-width: 800px) {
+        .search-grid { grid-template-columns: 1fr 1fr; }
+      }
+
+      .form-group {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .form-label {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-secondary);
+      }
+
+      .form-input, .form-select {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid rgba(0, 0, 0, 0.12);
+        border-radius: var(--radius-md);
+        font-size: 14px;
+        font-weight: 500;
+        background: #fafafa;
+        color: var(--text-primary);
+        outline: none;
+      }
+
+      .form-input:focus, .form-select:focus {
+        border-color: var(--accent-orange);
+        box-shadow: 0 0 0 3px rgba(255, 111, 15, 0.15);
+        background: #ffffff;
+      }
+
+      .btn-orange {
+        background: var(--accent-orange);
+        color: #ffffff;
+        border: none;
+        padding: 11px 18px;
+        font-size: 14px;
+        font-weight: 600;
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        transition: background-color 0.2s ease;
+        display: inline-flex;
+        justify-content: center;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .btn-orange:hover { background: var(--accent-orange-hover); }
+
+      /* Map Container */
+      .map-wrapper {
+        background: var(--card-bg);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+        border: 1px solid var(--border-color);
+        box-shadow: var(--shadow-subtle);
+        margin-bottom: 24px;
+      }
+
+      #map {
+        width: 100%;
+        height: 380px;
+        z-index: 1;
+      }
+
+      .map-banner {
+        padding: 12px 18px;
+        background: #fff8f0;
+        border-bottom: 1px solid rgba(255, 111, 15, 0.15);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 13px;
+        color: var(--accent-orange);
+        font-weight: 600;
+      }
+
+      /* Product Grid */
+      .card-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 20px;
+      }
+
+      .carrier-card {
+        background: var(--card-bg);
+        border-radius: var(--radius-lg);
+        border: 1px solid var(--border-color);
+        box-shadow: var(--shadow-subtle);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+      }
+
+      .carrier-card:hover {
+        transform: translateY(-3px);
+        box-shadow: var(--shadow-card);
+      }
+
+      .carrier-img-wrap {
+        position: relative;
+        height: 190px;
+        background: #f0f0f2;
+        overflow: hidden;
+      }
+
+      .carrier-img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .district-badge {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        background: rgba(0, 0, 0, 0.7);
+        backdrop-filter: blur(8px);
+        color: #ffffff;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 4px 10px;
+        border-radius: 20px;
+      }
+
+      .price-tag-badge {
+        position: absolute;
+        bottom: 12px;
+        right: 12px;
+        background: var(--accent-orange);
+        color: #ffffff;
+        font-size: 14px;
+        font-weight: 800;
+        padding: 4px 12px;
+        border-radius: 12px;
+      }
+
+      .carrier-body {
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        flex: 1;
+      }
+
+      .carrier-title {
+        font-size: 16px;
+        font-weight: 700;
+        letter-spacing: -0.3px;
+      }
+
+      .owner-info-line {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 13px;
+        color: var(--text-secondary);
+      }
+
+      .carrier-desc {
+        font-size: 13px;
+        color: var(--text-primary);
+        line-height: 1.4;
+        background: #fafafa;
+        padding: 8px 10px;
+        border-radius: var(--radius-sm);
+      }
+
+      /* Modal / Drawer */
+      .modal-overlay {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.5);
+        backdrop-filter: blur(4px);
+        z-index: 2000;
+        display: none;
+        justify-content: center;
+        align-items: center;
+        padding: 20px;
+      }
+
+      .modal-card {
+        background: #ffffff;
+        border-radius: var(--radius-lg);
+        width: 100%;
+        max-width: 480px;
+        padding: 28px;
+        box-shadow: var(--shadow-card);
+      }
+
+      .modal-title {
+        font-size: 20px;
+        font-weight: 700;
+        margin-bottom: 16px;
+      }
+
+      .event-log-container {
+        background: #1c1c1e;
+        color: #ff9f0a;
+        font-family: monospace;
+        padding: 16px;
+        border-radius: var(--radius-md);
+        max-height: 240px;
+        overflow-y: auto;
+        font-size: 12px;
+      }
+    </style>
   </head>
   <body>
-    <div id="app"></div>
+    <header>
+      <div class="nav-container">
+        <div class="logo-group">
+          <a href="#" class="logo" onclick="switchTab('renter')">Luggy</a>
+          <span class="badge-mvp">📍 당근마켓형 C2C 지도 대여 MVP</span>
+        </div>
+        <nav class="nav-tabs">
+          <button class="nav-btn active" id="tab-renter" onclick="switchTab('renter')">🗺️ 지도 탐색 (Renter)</button>
+          <button class="nav-btn" id="tab-provider" onclick="switchTab('provider')">➕ 내 캐리어 대여 등록</button>
+          <button class="nav-btn" id="tab-analytics" onclick="switchTab('analytics')">📊 퍼널 로그</button>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <!-- RENTER TAB -->
+      <section id="content-renter" class="tab-content active">
+        <div class="search-card">
+          <h1 class="search-title">내 동네 캐리어 대여 찾기</h1>
+          <div class="search-grid">
+            <div class="form-group">
+              <label class="form-label">동네/지역 검색</label>
+              <input type="text" id="search-district" class="form-input" placeholder="예: 역삼동, 서초동, 연남동" onkeyup="executeSearch()" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">캐리어 규격</label>
+              <select id="search-size" class="form-select" onchange="executeSearch()">
+                <option value="">전체 규격</option>
+                <option value="carry_on">기내용 (약 7,900원/일)</option>
+                <option value="medium">중형 24인치 (약 11,900원/일)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">검색어</label>
+              <input type="text" id="search-query" class="form-input" placeholder="브랜드/모델명" onkeyup="executeSearch()" />
+            </div>
+            <div class="form-group">
+              <button class="btn-orange" onclick="executeSearch()">🔍 지도 및 목록 조회</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="map-wrapper">
+          <div class="map-banner">
+            <span>📍 지도 핀을 클릭하여 소유자에게 1:1 대여 문의를 보내보세요!</span>
+            <span id="map-count-badge" style="font-size: 12px; font-weight: 700;">4개 매물 표시중</span>
+          </div>
+          <div id="map"></div>
+        </div>
+
+        <div style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;">
+          <h2 style="font-size: 18px; font-weight: 700;" id="list-title">동네 가용 캐리어 매물</h2>
+        </div>
+
+        <div class="card-grid" id="carrier-card-grid">
+          <!-- Carrier Cards -->
+        </div>
+      </section>
+
+      <!-- PROVIDER TAB -->
+      <section id="content-provider" class="tab-content">
+        <div class="search-card" style="max-width: 600px; margin: 0 auto;">
+          <h2 class="search-title">내 캐리어 직접 등록하기 (소유자)</h2>
+          <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">
+            이웃에게 캐리어를 대여해주고 수익을 얻어보세요. 결제 PG 수수료 없이 직접 직거래/약속 위치를 잡고 거래합니다.
+          </p>
+
+          <div style="display: flex; flex-direction: column; gap: 14px;">
+            <div class="form-group">
+              <label class="form-label">캐리어 브랜드 / 모델명</label>
+              <input type="text" id="p-brand" class="form-input" placeholder="예: 리모와 에센셜 20인치" value="리모와 캐빈 20인치" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">규격</label>
+              <select id="p-size" class="form-select">
+                <option value="carry_on">기내용 (추천가 7,900원/일)</option>
+                <option value="medium">중형 (추천가 11,900원/일)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">거래 가능 동네 / 구</label>
+              <input type="text" id="p-district" class="form-input" placeholder="예: 강남구 역삼동" value="강남구 역삼동" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">1일 대여료 (원)</label>
+              <input type="number" id="p-price" class="form-input" value="7900" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">소유자 닉네임</label>
+              <input type="text" id="p-owner-name" class="form-input" value="역삼동이웃" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">연락처 (전화번호)</label>
+              <input type="text" id="p-owner-contact" class="form-input" value="010-9876-5432" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">상세 설명 및 거래 희망 위치</label>
+              <textarea id="p-desc" class="form-input" style="height: 80px;">역삼역 3번 출구 근처에서 직거래 희망합니다. 깨끗하게 사용했습니다.</textarea>
+            </div>
+            <button class="btn-orange" onclick="submitNewCarrier()">📸 내 동네 매물로 등록하기</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ANALYTICS TAB -->
+      <section id="content-analytics" class="tab-content">
+        <div class="search-card">
+          <h2 class="search-title">C2C 퍼널 수집 이벤트 로그</h2>
+          <div class="event-log-container" id="event-log-box">
+            [System] Map C2C Funnel Logger Initialized...
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- 1:1 Contact Modal -->
+    <div class="modal-overlay" id="contact-modal">
+      <div class="modal-card">
+        <h2 class="modal-title" id="modal-carrier-title">소유자에게 1:1 대여 문의</h2>
+        <div id="modal-carrier-info" style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px; background: #fafafa; padding: 10px; border-radius: var(--radius-sm);"></div>
+
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <div class="form-group">
+            <label class="form-label">대여자 이름</label>
+            <input type="text" id="m-renter-name" class="form-input" value="김대여" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">대여자 연락처</label>
+            <input type="text" id="m-renter-phone" class="form-input" value="010-1234-5678" />
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <div class="form-group" style="flex:1;">
+              <label class="form-label">대여 시작일</label>
+              <input type="date" id="m-start-date" class="form-input" value="2026-08-10" />
+            </div>
+            <div class="form-group" style="flex:1;">
+              <label class="form-label">대여 종료일</label>
+              <input type="date" id="m-end-date" class="form-input" value="2026-08-12" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">문의 메시지</label>
+            <textarea id="m-message" class="form-input" style="height: 70px;">안녕하세요! 기재해주신 일정에 직거래 대여 문의드립니다.</textarea>
+          </div>
+
+          <div style="display: flex; gap: 10px; margin-top: 10px;">
+            <button class="btn-orange" style="background: #e5e5ea; color: var(--text-primary); flex: 1;" onclick="closeContactModal()">취소</button>
+            <button class="btn-orange" style="flex: 2;" onclick="submitContactRequest()">📩 1:1 대여 신청 보내기</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Leaflet JS for Map (Default Zero-Config Fallback) -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Global Map Initialization -->
+    <script>
+      const API_BASE = 'http://localhost:3001';
+      let map = null;
+      let markers = [];
+      let currentCarriers = [];
+      let selectedCarrier = null;
+      let isKakaoMap = false;
+
+      // Global Kakao Map Key configuration (Loaded from VITE_KAKAO_MAP_KEY environment variable or window config)
+      const KAKAO_KEY = (import.meta.env && import.meta.env.VITE_KAKAO_MAP_KEY) || window.KAKAO_APP_KEY || '';
+
+      function logFunnelEvent(eventName, payload = {}) {
+        const box = document.getElementById('event-log-box');
+        const timestamp = new Date().toISOString().split('T')[1].slice(0, 8);
+        const logLine = `[${timestamp}] EVENT: ${eventName} ${JSON.stringify(payload)}\n`;
+        box.innerText = logLine + box.innerText;
+
+        fetch(`${API_BASE}/funnel/events`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ event: eventName, payload })
+        }).catch(() => {});
+      }
+
+      function switchTab(tabName) {
+        document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+
+        document.getElementById(`tab-${tabName}`).classList.add('active');
+        document.getElementById(`content-${tabName}`).classList.add('active');
+
+        if (tabName === 'renter') {
+          setTimeout(() => {
+            if (map && !isKakaoMap) map.invalidateSize();
+            executeSearch();
+          }, 100);
+        }
+      }
+
+      function loadKakaoMapSdkGlobally(appKey) {
+        if (!appKey) return false;
+        if (window.kakao && window.kakao.maps) {
+          initKakaoMap();
+          return true;
+        }
+        const script = document.createElement('script');
+        script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${appKey}&autoload=false`;
+        script.onload = () => {
+          window.kakao.maps.load(() => {
+            initKakaoMap();
+          });
+        };
+        document.head.appendChild(script);
+        return true;
+      }
+
+      function initKakaoMap() {
+        if (!window.kakao || !window.kakao.maps) return;
+        const container = document.getElementById('map');
+        container.innerHTML = '';
+        const options = { center: new kakao.maps.LatLng(37.5100, 127.0100), level: 6 };
+        map = new kakao.maps.Map(container, options);
+        isKakaoMap = true;
+        if (currentCarriers.length > 0) renderMapPins(currentCarriers);
+      }
+
+      function initMap() {
+        if (map) return;
+        if (KAKAO_KEY && loadKakaoMapSdkGlobally(KAKAO_KEY)) return;
+
+        map = L.map('map').setView([37.5100, 127.0100], 12);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 18,
+          attribution: '© OpenStreetMap'
+        }).addTo(map);
+      }
+
+      async function executeSearch() {
+        if (!isKakaoMap) initMap();
+
+        const district = document.getElementById('search-district').value;
+        const size = document.getElementById('search-size').value;
+        const q = document.getElementById('search-query').value;
+
+        logFunnelEvent('map_search', { district, size, q, mapType: isKakaoMap ? 'kakao' : 'leaflet' });
+
+        try {
+          const params = new URLSearchParams();
+          if (district) params.append('district', district);
+          if (size) params.append('size', size);
+          if (q) params.append('q', q);
+
+          const res = await fetch(`${API_BASE}/renters/search?${params.toString()}`);
+          const data = await res.json();
+
+          currentCarriers = data.items || [];
+          renderMapPins(currentCarriers);
+          renderCarrierCards(currentCarriers);
+        } catch (err) {
+          currentCarriers = [
+            { id: 'c1', brandModel: '리모와 에센셜 캐빈 (20인치)', district: '강남구 역삼동', lat: 37.4979, lng: 127.0276, dailyPrice: 7900, ownerName: '역삼동이웃', ownerContact: '010-9876-5432', rating: 4.9, reviews: 18, photoUrl: 'https://images.unsplash.com/photo-1565026057447-b88e3f291029?auto=format&fit=crop&w=600&q=80', description: '역삼역 3번 출구 근처 직거래' },
+            { id: 'c2', brandModel: '샘소나이트 에어로스 20인치', district: '서초구 서초동', lat: 37.4918, lng: 127.0079, dailyPrice: 7000, ownerName: '서초트래블러', ownerContact: '010-8765-4321', rating: 4.8, reviews: 12, photoUrl: 'https://images.unsplash.com/photo-1581553680321-4fffae59febd?auto=format&fit=crop&w=600&q=80', description: '교대역/서초역 부근' }
+          ];
+          renderMapPins(currentCarriers);
+          renderCarrierCards(currentCarriers);
+        }
+      }
+
+      function renderMapPins(items) {
+        if (isKakaoMap && window.kakao && window.kakao.maps) {
+          markers.forEach(m => m.setMap(null));
+          markers = [];
+          if (items.length === 0) return;
+
+          const bounds = new kakao.maps.LatLngBounds();
+          items.forEach(item => {
+            if (!item.lat || !item.lng) return;
+            const loc = new kakao.maps.LatLng(item.lat, item.lng);
+            bounds.extend(loc);
+
+            const marker = new kakao.maps.Marker({ position: loc, map: map });
+            const infowindow = new kakao.maps.InfoWindow({
+              content: `<div style="padding:8px;font-size:12px;color:#1d1d1f;"><strong>${item.brandModel}</strong><br/>📍 ${item.district}<br/><span style="color:#ff6f0f;font-weight:bold;">${item.dailyPrice.toLocaleString()}원/일</span></div>`
+            });
+            kakao.maps.event.addListener(marker, 'click', () => {
+              infowindow.open(map, marker);
+              openContactModal(item.id);
+            });
+            markers.push(marker);
+          });
+          map.setBounds(bounds);
+          document.getElementById('map-count-badge').innerText = `${items.length}개 매물 (카카오 지도)`;
+          return;
+        }
+
+        markers.forEach(m => map.removeLayer(m));
+        markers = [];
+
+        if (items.length === 0) return;
+
+        const bounds = [];
+        items.forEach(item => {
+          if (!item.lat || !item.lng) return;
+          bounds.push([item.lat, item.lng]);
+
+          const marker = L.marker([item.lat, item.lng]).addTo(map);
+          marker.bindPopup(`
+            <div style="font-size: 13px; padding: 4px;">
+              <strong>${item.brandModel}</strong><br/>
+              📍 ${item.district}<br/>
+              <span style="color: #ff6f0f; font-weight: 800;">${item.dailyPrice.toLocaleString()}원/일</span><br/>
+              <button onclick="openContactModal('${item.id}')" style="margin-top: 6px; background: #ff6f0f; color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 12px; cursor: pointer;">1:1 대여 문의</button>
+            </div>
+          `);
+          markers.push(marker);
+        });
+
+        if (bounds.length > 0) {
+          map.fitBounds(bounds, { padding: [40, 40] });
+        }
+
+        document.getElementById('map-count-badge').innerText = `${items.length}개 매물 표시중`;
+      }
+
+      function renderCarrierCards(items) {
+        const grid = document.getElementById('carrier-card-grid');
+        document.getElementById('list-title').innerText = `동네 가용 캐리어 매물 (${items.length}개)`;
+
+        if (items.length === 0) {
+          grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 40px; background: white; border-radius: 18px;">검색 조건에 해당되는 동네 캐리어가 없습니다.</div>`;
+          return;
+        }
+
+        grid.innerHTML = items.map(item => `
+          <div class="carrier-card">
+            <div class="carrier-img-wrap">
+              <img src="${item.photoUrl || 'https://images.unsplash.com/photo-1565026057447-b88e3f291029?auto=format&fit=crop&w=600&q=80'}" alt="${item.brandModel}" class="carrier-img" />
+              <span class="district-badge">📍 ${item.district}</span>
+              <span class="price-tag-badge">${item.dailyPrice.toLocaleString()}원/일</span>
+            </div>
+            <div class="carrier-body">
+              <h3 class="carrier-title">${item.brandModel}</h3>
+              <div class="owner-info-line">
+                <span>👤 ${item.ownerName || '이웃'}</span>
+                <span>★ ${item.rating || 5.0} (${item.reviews || 0})</span>
+              </div>
+              <p class="carrier-desc">${item.description || '소유자와 직접 1:1 상의하여 일정을 정하세요.'}</p>
+              <button class="btn-orange" style="margin-top: auto; width: 100%;" onclick="openContactModal('${item.id}')">
+                💬 1:1 대여 문의하기
+              </button>
+            </div>
+          </div>
+        `).join('');
+      }
+
+      function openContactModal(carrierId) {
+        selectedCarrier = currentCarriers.find(c => c.id === carrierId);
+        if (!selectedCarrier) return;
+
+        logFunnelEvent('contact_modal_open', { carrierId });
+
+        document.getElementById('modal-carrier-title').innerText = `[${selectedCarrier.district}] ${selectedCarrier.brandModel}`;
+        document.getElementById('modal-carrier-info').innerText = `소유자: ${selectedCarrier.ownerName} | 1일 대여료: ${selectedCarrier.dailyPrice.toLocaleString()}원`;
+        document.getElementById('contact-modal').style.display = 'flex';
+      }
+
+      function closeContactModal() {
+        document.getElementById('contact-modal').style.display = 'none';
+      }
+
+      async function submitContactRequest() {
+        if (!selectedCarrier) return;
+
+        const renterName = document.getElementById('m-renter-name').value;
+        const renterPhone = document.getElementById('m-renter-phone').value;
+        const startDate = document.getElementById('m-start-date').value;
+        const endDate = document.getElementById('m-end-date').value;
+        const message = document.getElementById('m-message').value;
+
+        try {
+          const res = await fetch(`${API_BASE}/contact-requests`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              carrierId: selectedCarrier.id,
+              renterName,
+              renterPhone,
+              startDate,
+              endDate,
+              message
+            })
+          });
+          const data = await res.json();
+
+          logFunnelEvent('contact_request_sent', { carrierId: selectedCarrier.id, requestId: data.contactRequest?.id });
+
+          alert(`🎉 대여 문의가 전달되었습니다!\n\n[소유자 정보]\n- 이름: ${data.ownerInfo.ownerName}\n- 연락처: ${data.ownerInfo.ownerContact}\n- 위치: ${data.ownerInfo.district}\n\n소유자와 직접 연락하여 전달 장소 및 일정을 상의하세요!`);
+          closeContactModal();
+        } catch (err) {
+          alert(`🎉 [예시] 대여 문의가 완료되었습니다!\n소유자 연락처: ${selectedCarrier.ownerContact || '010-9876-5432'}`);
+          closeContactModal();
+        }
+      }
+
+      async function submitNewCarrier() {
+        const brandModel = document.getElementById('p-brand').value;
+        const size = document.getElementById('p-size').value;
+        const district = document.getElementById('p-district').value;
+        const dailyPrice = document.getElementById('p-price').value;
+        const ownerName = document.getElementById('p-owner-name').value;
+        const ownerContact = document.getElementById('p-owner-contact').value;
+        const description = document.getElementById('p-desc').value;
+
+        try {
+          const res = await fetch(`${API_BASE}/providers/carriers`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              brandModel,
+              size,
+              district,
+              dailyPrice,
+              ownerName,
+              ownerContact,
+              description
+            })
+          });
+          const data = await res.json();
+
+          logFunnelEvent('carrier_registered', { id: data.id });
+          alert(`✅ 매물이 성공적으로 등록되었습니다! (ID: ${data.id})\n지도 탐색 탭에서 바로 확인하실 수 있습니다.`);
+          switchTab('renter');
+        } catch (err) {
+          alert('등록 중 오류가 발생했습니다.');
+        }
+      }
+
+      window.onload = () => {
+        executeSearch();
+      };
+    </script>
   </body>
 </html>
