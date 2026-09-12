@@ -1,15 +1,17 @@
 node_modules/
+apps/*/node_modules/
 dist/
+apps/*/dist/
 .DS_Store
 *.log
 test-results/
 playwright-report/
+apps/web/test-results/
+apps/api/uploads/
 .env
 *.env
 .env.*
 apps/web/.env
 kakao_key.txt
 apps/web/public/kakao_key.txt
-
-
 

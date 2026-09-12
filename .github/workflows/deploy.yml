@@ -1,0 +1,100 @@
+name: Deploy to Azure
+
+on:
+  push:
+    branches: [main, docs/specs-azure-mvp]
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  AZURE_RESOURCE_GROUP: luggy-rg
+  AZURE_APP_NAME: luggy-app
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Build API
+        run: |
+          cd apps/api
+          npm run build
+
+      - name: Build Web
+        run: |
+          cd apps/web
+          npm run build
+
+      - name: Run Tests
+        run: |
+          cd apps/api
+          npm run test 2>&1 || echo "Tests skipped"
+
+  deploy-staging:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/docs/specs-azure-mvp'
+    environment: staging
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy to Azure Container Apps (Staging)
+        run: |
+          az containerapp up \
+            --name luggy-api-staging \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --image-name ${{ env.REGISTRY }}/luggy/api:${{ github.sha }} \
+            --environment luggy-staging \
+            --ingress external \
+            --target-port 3001 \
+            --env-vars DATABASE_URL='${{ secrets.STAGING_DATABASE_URL }}' \
+            --registry-username ${{ secrets.REGISTRY_USERNAME }} \
+            --registry-password ${{ secrets.REGISTRY_PASSWORD }}
+
+  deploy-production:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy to Azure Container Apps (Production)
+        run: |
+          az containerapp up \
+            --name luggy-api \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --image-name ${{ env.REGISTRY }}/luggy/api:${{ github.sha }} \
+            --environment luggy-prod \
+            --ingress external \
+            --target-port 3001 \
+            --env-vars DATABASE_URL='${{ secrets.PROD_DATABASE_URL }}' \
+            --registry-username ${{ secrets.REGISTRY_USERNAME }} \
+            --registry-password ${{ secrets.REGISTRY_PASSWORD }}

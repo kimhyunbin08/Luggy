@@ -1,0 +1,54 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: luggy
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./apps/api/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/luggy
+      NODE_ENV: development
+      PORT: 3001
+      PUBLIC_API_URL: http://localhost:3001
+      WEB_ORIGIN: http://localhost:3002
+      WEB_ORIGINS: http://localhost:3002,http://127.0.0.1:3002
+      PAYMENT_WEBHOOK_SECRET: dev-payment-webhook-secret-change-me
+      DELIVERY_WEBHOOK_SECRET: dev-delivery-webhook-secret-change-me
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - api_uploads:/app/uploads
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_URL: http://localhost:3001
+    ports:
+      # Host 3000 is already used by another project on this machine; publish on 3002 instead.
+      - "3002:3000"
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
+  api_uploads:
