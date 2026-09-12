@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Luggy - 지도 기반 C2C 이웃 캐리어 대여 | Web MVP</title>
-    <!-- Leaflet CSS for Map -->
+    <!-- Leaflet CSS for Map (Zero-config Default Fallback) -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
       :root {
@@ -198,7 +198,7 @@
 
       #map {
         width: 100%;
-        height: 320px;
+        height: 360px;
         z-index: 1;
       }
 
@@ -212,6 +212,26 @@
         font-size: 13px;
         color: var(--accent-orange);
         font-weight: 600;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .kakao-key-box {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        background: #ffffff;
+        padding: 4px 8px;
+        border-radius: var(--radius-sm);
+        border: 1px solid rgba(255, 111, 15, 0.3);
+      }
+
+      .kakao-key-input {
+        border: none;
+        outline: none;
+        font-size: 12px;
+        width: 180px;
+        padding: 2px 4px;
       }
 
       /* Product Grid */
@@ -391,12 +411,15 @@
 
         <div class="map-wrapper">
           <div class="map-banner">
-    <div>
-      <span>📍 지도 핀을 클릭하거나 매물에서 소유자에게 직접 1:1 대여 문의를 보내보세요!</span>
-      <span style="font-size: 11px; margin-left: 10px; color: var(--text-secondary);">(기본: OpenStreetMap / 카카오 지도 API 연동 지원)</span>
-    </div>
-            <span>📍 지도 핀을 클릭하거나 아래 매물에서 소유자에게 직접 1:1 대여 문의를 보내보세요!</span>
-            <span id="map-count-badge">4개 매물 표시중</span>
+            <div>
+              <span>📍 지도 핀을 클릭하여 소유자에게 1:1 대여 문의를 보내세요!</span>
+            </div>
+            <div class="kakao-key-box">
+              <span style="font-size: 11px; color: var(--text-secondary);">🟡 카카오 지도 API 키:</span>
+              <input type="text" id="input-kakao-key" class="kakao-key-input" placeholder="Javascript Key 입력" />
+              <button onclick="applyKakaoKey()" style="border: none; background: #ffe800; color: #3c1e1e; font-weight: 700; padding: 3px 8px; border-radius: 4px; font-size: 11px; cursor: pointer;">적용</button>
+            </div>
+            <span id="map-count-badge" style="font-size: 12px; font-weight: 700;">4개 매물 표시중</span>
           </div>
           <div id="map"></div>
         </div>
@@ -504,7 +527,7 @@
       </div>
     </div>
 
-    <!-- Leaflet JS for Map -->
+    <!-- Leaflet JS for Map (Default Fallback) -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
       const API_BASE = 'http://localhost:3001';
@@ -512,6 +535,7 @@
       let markers = [];
       let currentCarriers = [];
       let selectedCarrier = null;
+      let isKakaoMap = false;
 
       function logFunnelEvent(eventName, payload = {}) {
         const box = document.getElementById('event-log-box');
@@ -535,10 +559,48 @@
 
         if (tabName === 'renter') {
           setTimeout(() => {
-            if (map) map.invalidateSize();
+            if (map && !isKakaoMap) map.invalidateSize();
             executeSearch();
           }, 100);
         }
+      }
+
+      function applyKakaoKey() {
+        const key = document.getElementById('input-kakao-key').value.trim();
+        if (!key) {
+          alert('카카오 JavaScript 앱 키를 입력해주세요.');
+          return;
+        }
+        loadKakaoMapSdk(key);
+      }
+
+      function loadKakaoMapSdk(appKey) {
+        if (window.kakao && window.kakao.maps) {
+          initKakaoMap();
+          return;
+        }
+        const script = document.createElement('script');
+        script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${appKey}&autoload=false`;
+        script.onload = () => {
+          window.kakao.maps.load(() => {
+            initKakaoMap();
+          });
+        };
+        script.onerror = () => {
+          alert('카카오 지도 SDK 로드에 실패했습니다. 올바른 Javascript 키인지 확인해주세요.');
+        };
+        document.head.appendChild(script);
+      }
+
+      function initKakaoMap() {
+        if (!window.kakao || !window.kakao.maps) return;
+        const container = document.getElementById('map');
+        container.innerHTML = '';
+        const options = { center: new kakao.maps.LatLng(37.5100, 127.0100), level: 6 };
+        map = new kakao.maps.Map(container, options);
+        isKakaoMap = true;
+        alert('🟡 카카오 지도로 성공적으로 전환되었습니다!');
+        if (currentCarriers.length > 0) renderMapPins(currentCarriers);
       }
 
       function initMap() {
@@ -551,13 +613,13 @@
       }
 
       async function executeSearch() {
-        initMap();
+        if (!isKakaoMap) initMap();
 
         const district = document.getElementById('search-district').value;
         const size = document.getElementById('search-size').value;
         const q = document.getElementById('search-query').value;
 
-        logFunnelEvent('map_search', { district, size, q });
+        logFunnelEvent('map_search', { district, size, q, mapType: isKakaoMap ? 'kakao' : 'leaflet' });
 
         try {
           const params = new URLSearchParams();
@@ -581,7 +643,6 @@
         }
       }
 
-      
       function renderMapPins(items) {
         if (isKakaoMap && window.kakao && window.kakao.maps) {
           markers.forEach(m => m.setMap(null));
@@ -596,7 +657,7 @@
 
             const marker = new kakao.maps.Marker({ position: loc, map: map });
             const infowindow = new kakao.maps.InfoWindow({
-              content: `<div style="padding:8px;font-size:12px;"><strong>${item.brandModel}</strong><br/>${item.dailyPrice.toLocaleString()}원/일</div>`
+              content: `<div style="padding:8px;font-size:12px;color:#1d1d1f;"><strong>${item.brandModel}</strong><br/>📍 ${item.district}<br/><span style="color:#ff6f0f;font-weight:bold;">${item.dailyPrice.toLocaleString()}원/일</span></div>`
             });
             kakao.maps.event.addListener(marker, 'click', () => {
               infowindow.open(map, marker);
@@ -605,7 +666,7 @@
             markers.push(marker);
           });
           map.setBounds(bounds);
-          document.getElementById('map-count-badge').innerText = `${items.length}개 매물 표시중 (카카오 지도)`;
+          document.getElementById('map-count-badge').innerText = `${items.length}개 매물 (카카오 지도)`;
           return;
         }
 
@@ -635,9 +696,8 @@
           map.fitBounds(bounds, { padding: [40, 40] });
         }
 
-        document.getElementById('map-count-badge').innerText = `${items.length}개 매물 표시중 (OpenStreetMap/카카오지동 지원)`;
+        document.getElementById('map-count-badge').innerText = `${items.length}개 매물 표시중 (기본 지도)`;
       }
-
 
       function renderCarrierCards(items) {
         const grid = document.getElementById('carrier-card-grid');
