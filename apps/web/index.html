@@ -967,7 +967,12 @@
             </div>
             <div class="form-group">
               <label class="form-label">거래 가능 동네 / 구</label>
-              <input type="text" id="p-district" class="form-input" placeholder="예: 강남구 역삼동" />
+              <div style="display: flex; gap: 6px;">
+                <select id="p-sido" class="form-select" style="flex:1;" onchange="onDistrictSidoChange('p')"></select>
+                <select id="p-sigungu" class="form-select" style="flex:1;" onchange="onDistrictSigunguChange('p')" disabled></select>
+                <select id="p-dong" class="form-select" style="flex:1;" onchange="onDistrictDongChange('p')" disabled></select>
+              </div>
+              <input type="hidden" id="p-district" />
             </div>
             <div style="display: flex; gap: 10px;">
               <div class="form-group" style="flex:1;">
@@ -1158,8 +1163,13 @@
           <div class="signup-step" id="signup-step-2" style="display: none;">
             <div class="form-group">
               <label class="form-label">우리 동네</label>
-              <input type="text" id="s-district" class="form-input" placeholder="예: 강남구 역삼동" />
-              <div class="form-hint">지도에서 내 동네 매물을 우선 보여드리고, 헤더에 표시됩니다.</div>
+              <div style="display: flex; gap: 6px;">
+                <select id="s-sido" class="form-select" style="flex:1;" onchange="onDistrictSidoChange('s')"></select>
+                <select id="s-sigungu" class="form-select" style="flex:1;" onchange="onDistrictSigunguChange('s')" disabled></select>
+                <select id="s-dong" class="form-select" style="flex:1;" onchange="onDistrictDongChange('s')" disabled></select>
+              </div>
+              <input type="hidden" id="s-district" />
+              <div class="form-hint">시 - 군/구 - 동을 차례로 선택하면 지도/헤더에 정확한 동네가 표시됩니다.</div>
             </div>
           </div>
 
@@ -1272,6 +1282,12 @@
 
     <!-- Leaflet JS for Map (Default Zero-Config Fallback) -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Korean administrative district dataset (시/도 -> 시/군/구 -> 읍/면/동),
+         used to power the cascading location picker at signup and carrier
+         registration so users select a real, objective address instead of
+         typing free text (see AGENTS.md/prd.md 위치 요구사항). -->
+    <script src="/kr-districts.js"></script>
 
     <!-- Global Map & Platform Application Logic -->
     <script>
@@ -1492,7 +1508,7 @@
         } else if (signupStep === 2) {
           const district = document.getElementById('s-district').value.trim();
           if (!district) {
-            errorBox.innerText = '우리 동네(예: 강남구 역삼동)를 입력해주세요.';
+            errorBox.innerText = '우리 동네(시/군/구/동)를 모두 선택해주세요.';
             errorBox.style.display = 'block';
             return;
           }
@@ -2395,6 +2411,14 @@
           alert('1일 대여료는 0보다 큰 금액으로 입력해주세요.');
           return;
         }
+        if (!brandModel.trim()) {
+          alert('캐리어 브랜드/모델명을 입력해주세요.');
+          return;
+        }
+        if (!district) {
+          alert('거래 가능 동네(시/군/구/동)를 모두 선택해주세요.');
+          return;
+        }
 
         try {
           const res = await fetch(`${API_BASE}/providers/carriers`, {
@@ -2465,6 +2489,72 @@
       }
 
       // Initialize default search on load
+      // ============================================================
+      // Korean administrative district picker (시/도 -> 시/군/구 -> 읍/면/동)
+      // Backed by window.KR_DISTRICTS (public/kr-districts.js), a static
+      // real-address dataset - replaces free-text district entry so every
+      // registered location is an objective, valid Korean address instead
+      // of an arbitrary typed string.
+      // ============================================================
+      function initDistrictPicker(prefix) {
+        const sidoSelect = document.getElementById(`${prefix}-sido`);
+        if (!sidoSelect || !window.KR_DISTRICTS) return;
+        sidoSelect.innerHTML = '<option value="">시/도 선택</option>' +
+          window.KR_DISTRICTS.map(([sido]) => `<option value="${sido}">${sido}</option>`).join('');
+      }
+
+      function onDistrictSidoChange(prefix) {
+        const sido = document.getElementById(`${prefix}-sido`).value;
+        const sigunguSelect = document.getElementById(`${prefix}-sigungu`);
+        const dongSelect = document.getElementById(`${prefix}-dong`);
+        dongSelect.innerHTML = '<option value="">동/읍/면 선택</option>';
+        dongSelect.disabled = true;
+
+        const entry = (window.KR_DISTRICTS || []).find(([name]) => name === sido);
+        if (!entry) {
+          sigunguSelect.innerHTML = '<option value="">시/군/구 선택</option>';
+          sigunguSelect.disabled = true;
+          updateDistrictHiddenValue(prefix);
+          return;
+        }
+        sigunguSelect.innerHTML = '<option value="">시/군/구 선택</option>' +
+          entry[1].map(([gugun]) => `<option value="${gugun}">${gugun}</option>`).join('');
+        sigunguSelect.disabled = false;
+        updateDistrictHiddenValue(prefix);
+      }
+
+      function onDistrictSigunguChange(prefix) {
+        const sido = document.getElementById(`${prefix}-sido`).value;
+        const sigungu = document.getElementById(`${prefix}-sigungu`).value;
+        const dongSelect = document.getElementById(`${prefix}-dong`);
+
+        const entry = (window.KR_DISTRICTS || []).find(([name]) => name === sido);
+        const gugunEntry = entry && entry[1].find(([name]) => name === sigungu);
+        if (!gugunEntry) {
+          dongSelect.innerHTML = '<option value="">동/읍/면 선택</option>';
+          dongSelect.disabled = true;
+          updateDistrictHiddenValue(prefix);
+          return;
+        }
+        dongSelect.innerHTML = '<option value="">동/읍/면 선택</option>' +
+          gugunEntry[1].map((dong) => `<option value="${dong}">${dong}</option>`).join('');
+        dongSelect.disabled = false;
+        updateDistrictHiddenValue(prefix);
+      }
+
+      function onDistrictDongChange(prefix) {
+        updateDistrictHiddenValue(prefix);
+      }
+
+      function updateDistrictHiddenValue(prefix) {
+        const sido = document.getElementById(`${prefix}-sido`).value;
+        const sigungu = document.getElementById(`${prefix}-sigungu`).value;
+        const dong = document.getElementById(`${prefix}-dong`).value;
+        const hidden = document.getElementById(`${prefix}-district`);
+        // 배민/당근마켓 스타일 표기: "구 동" (시/도는 생략하고 구-동만 노출).
+        hidden.value = sigungu && dong ? `${sigungu} ${dong}` : '';
+      }
+
       window.addEventListener('DOMContentLoaded', () => {
         renderAuthArea();
         renderLocationBadge();
@@ -2472,6 +2562,8 @@
         renderHomeDashboard();
         const carrierYearInput = document.getElementById('s-carrier-year');
         if (carrierYearInput) carrierYearInput.max = String(new Date().getFullYear());
+        initDistrictPicker('s');
+        initDistrictPicker('p');
       });
     </script>
   </body>
