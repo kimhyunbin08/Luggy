@@ -1,4 +1,4 @@
-import { createApp } from './server-inmemory.js';
+import { createApp } from './server.js';
 
 const app = createApp();
 const PORT = process.env.PORT || 3001;
