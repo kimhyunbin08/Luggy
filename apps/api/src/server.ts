@@ -158,6 +158,15 @@ export function createApp() {
   });
 
   // ============================================================
+  // HEALTH CHECK (used by the Dockerfile HEALTHCHECK and the
+  // Container Apps platform probes to confirm the process is alive)
+  // ============================================================
+
+  app.get('/health', (_req: Request, res: Response) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString(), environment: process.env.NODE_ENV || 'development' });
+  });
+
+  // ============================================================
   // AUTH ENDPOINTS (phone-based login/signup, no password/PG flow)
   // ============================================================
 
