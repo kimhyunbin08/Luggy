@@ -2,7 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { calculateRefundAmount, calculateSettlement, calculateTotalPrice, validateMinimumRentalDays } from './domain/calculators.js';
 import { CarrierSize, defaultPolicy } from './domain/policy.js';
-import { generateSessionToken, isValidNickname, isValidPhone, normalizePhone } from './domain/auth.js';
+import { generateSessionToken, isValidDistrict, isValidNickname, isValidPhone, normalizePhone } from './domain/auth.js';
 
 type BookingStatus =
   | 'requested'
@@ -80,6 +80,17 @@ type User = {
   nickname: string;
   phone: string;
   createdAt: string;
+  // Onboarding profile (당근마켓 style personalization), collected at signup.
+  district: string; // e.g. "강남구 역삼동" - same format as CarrierItem.district
+  ownsCarrier: boolean;
+  carrierModel?: string;
+  carrierPurchaseYear?: number;
+  carrierPhotoUrl?: string;
+  travelDaysPerYear?: number;
+  hasStorageIssue?: boolean;
+  // Mandatory legal consent (collected at signup, cannot be skipped).
+  agreedToTermsAt: string;
+  agreedToPrivacyAt: string;
 };
 
 type Review = {
@@ -149,7 +160,19 @@ export function createApp() {
   // ============================================================
 
   app.post('/auth/signup', (req: Request, res: Response) => {
-    const schema = z.object({ nickname: z.string(), phone: z.string() });
+    const schema = z.object({
+      nickname: z.string(),
+      phone: z.string(),
+      district: z.string(),
+      ownsCarrier: z.boolean(),
+      carrierModel: z.string().optional(),
+      carrierPurchaseYear: z.number().optional(),
+      carrierPhotoUrl: z.string().optional(),
+      travelDaysPerYear: z.number().optional(),
+      hasStorageIssue: z.boolean().optional(),
+      agreedToTerms: z.boolean().optional(),
+      agreedToPrivacy: z.boolean().optional()
+    });
     const parsed = schema.parse(req.body);
     if (!isValidNickname(parsed.nickname)) {
       return res.status(400).json({ message: '닉네임은 2~20자로 입력해주세요.' });
@@ -157,11 +180,38 @@ export function createApp() {
     if (!isValidPhone(parsed.phone)) {
       return res.status(400).json({ message: '올바른 휴대폰 번호 형식이 아닙니다. (예: 010-1234-5678)' });
     }
+    if (!isValidDistrict(parsed.district)) {
+      return res.status(400).json({ message: '동네(예: 강남구 역삼동)를 입력해주세요.' });
+    }
+    if (parsed.ownsCarrier && !parsed.carrierModel?.trim()) {
+      return res.status(400).json({ message: '보유중인 캐리어의 모델명을 입력해주세요.' });
+    }
+    // Mandatory legal consent: signup cannot proceed without explicit agreement
+    // to both the terms of service and the privacy policy (collecting name,
+    // phone, location, and preference data requires opt-in consent).
+    if (!parsed.agreedToTerms || !parsed.agreedToPrivacy) {
+      return res.status(400).json({ message: '이용약관 및 개인정보 수집·이용에 모두 동의해야 가입할 수 있습니다.' });
+    }
     const phone = normalizePhone(parsed.phone);
     if (findUserByPhone(phone)) {
       return res.status(409).json({ message: '이미 가입된 휴대폰 번호입니다. 로그인해주세요.' });
     }
-    const user: User = { id: `u${users.length + 1}`, nickname: parsed.nickname.trim(), phone, createdAt: new Date().toISOString() };
+    const now = new Date().toISOString();
+    const user: User = {
+      id: `u${users.length + 1}`,
+      nickname: parsed.nickname.trim(),
+      phone,
+      createdAt: now,
+      district: parsed.district.trim(),
+      ownsCarrier: parsed.ownsCarrier,
+      carrierModel: parsed.ownsCarrier ? parsed.carrierModel?.trim() : undefined,
+      carrierPurchaseYear: parsed.ownsCarrier ? parsed.carrierPurchaseYear : undefined,
+      carrierPhotoUrl: parsed.ownsCarrier ? parsed.carrierPhotoUrl?.trim() || undefined : undefined,
+      travelDaysPerYear: parsed.travelDaysPerYear,
+      hasStorageIssue: parsed.hasStorageIssue,
+      agreedToTermsAt: now,
+      agreedToPrivacyAt: now
+    };
     users.push(user);
     const token = generateSessionToken();
     sessions.set(token, user.id);

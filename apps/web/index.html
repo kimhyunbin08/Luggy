@@ -650,6 +650,72 @@
         font-size: 14px;
       }
       .settings-row:last-child { border-bottom: none; }
+
+      /* Signup onboarding wizard (4-step: 기본정보 / 동네 / 캐리어·이용습관 / 약관동의) */
+      .form-hint {
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-top: 6px;
+        line-height: 1.5;
+      }
+      .signup-progress {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--accent-orange);
+        letter-spacing: 0.02em;
+      }
+      .signup-toggle-row {
+        display: flex;
+        gap: 8px;
+      }
+      .signup-toggle-btn {
+        flex: 1;
+        padding: 10px;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--border-color);
+        background: #fff;
+        color: var(--text-primary);
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .signup-toggle-btn.active {
+        background: var(--accent-orange);
+        border-color: var(--accent-orange);
+        color: #fff;
+      }
+      .signup-nav-row {
+        display: flex;
+        gap: 8px;
+      }
+      .signup-nav-row button {
+        flex: 1;
+      }
+      .consent-box {
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-sm);
+        padding: 12px 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .consent-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .consent-row input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+        min-width: 18px;
+        cursor: pointer;
+      }
+      .consent-row a {
+        color: var(--accent-orange);
+        text-decoration: underline;
+      }
     </style>
   </head>
   <body>
@@ -657,7 +723,7 @@
       <div class="nav-container">
         <div class="logo-group">
           <a href="#" class="logo" onclick="switchTab('home')">Luggy</a>
-          <span class="badge-mvp">📍 당근마켓형 C2C 지도 대여 MVP</span>
+          <span class="badge-mvp" id="location-badge">📍 당근마켓형 C2C 지도 대여 MVP</span>
         </div>
         <nav class="nav-tabs">
           <button class="nav-btn active" id="tab-home" onclick="switchTab('home')">🏠 홈</button>
@@ -968,17 +1034,105 @@
         <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
           휴대폰 번호만으로 간편하게 가입/로그인합니다. (별도 비밀번호 없음, 결제 정보 없음)
         </p>
-        <div style="display: flex; flex-direction: column; gap: 12px;">
-          <div class="form-group" id="login-nickname-group">
-            <label class="form-label">닉네임</label>
-            <input type="text" id="l-nickname" class="form-input" placeholder="예: 역삼동이웃" />
-          </div>
+
+        <!-- Login mode: single step -->
+        <div id="login-step-login" style="display: none; flex-direction: column; gap: 12px;">
           <div class="form-group">
             <label class="form-label">휴대폰 번호</label>
-            <input type="text" id="l-phone" class="form-input" placeholder="010-1234-5678" />
+            <input type="text" id="l-phone-login" class="form-input" placeholder="010-1234-5678" />
           </div>
           <div id="login-modal-error" style="color: var(--accent-red); font-size: 12px; display: none;"></div>
-          <button class="btn-orange" id="login-submit-btn" onclick="submitAuth()">가입하고 시작하기</button>
+          <button class="btn-orange" onclick="submitAuth()">로그인하기</button>
+          <button class="btn-logout" style="align-self: center;" onclick="toggleAuthMode()">아직 계정이 없어요, 가입할게요</button>
+          <button class="btn-orange" style="background: #e5e5ea; color: var(--text-primary);" onclick="closeLoginModal()">닫기</button>
+        </div>
+
+        <!-- Signup mode: 4-step onboarding wizard for 당근마켓-style personalization -->
+        <div id="login-step-signup" style="display: flex; flex-direction: column; gap: 12px;">
+          <div class="signup-progress" id="signup-progress">1 / 4 · 기본 정보</div>
+
+          <!-- Step 1: name/phone -->
+          <div class="signup-step" id="signup-step-1">
+            <div class="form-group">
+              <label class="form-label">닉네임</label>
+              <input type="text" id="s-nickname" class="form-input" placeholder="예: 역삼동이웃" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">휴대폰 번호</label>
+              <input type="text" id="s-phone" class="form-input" placeholder="010-1234-5678" />
+            </div>
+          </div>
+
+          <!-- Step 2: location -->
+          <div class="signup-step" id="signup-step-2" style="display: none;">
+            <div class="form-group">
+              <label class="form-label">우리 동네</label>
+              <input type="text" id="s-district" class="form-input" placeholder="예: 강남구 역삼동" />
+              <div class="form-hint">지도에서 내 동네 매물을 우선 보여드리고, 헤더에 표시됩니다.</div>
+            </div>
+          </div>
+
+          <!-- Step 3: carrier ownership / travel habits (personalization signals) -->
+          <div class="signup-step" id="signup-step-3" style="display: none;">
+            <div class="form-group">
+              <label class="form-label">현재 캐리어를 보유하고 계신가요?</label>
+              <div class="signup-toggle-row">
+                <button type="button" class="signup-toggle-btn active" id="owns-carrier-yes" onclick="setOwnsCarrier(true)">네, 있어요</button>
+                <button type="button" class="signup-toggle-btn" id="owns-carrier-no" onclick="setOwnsCarrier(false)">아니요</button>
+              </div>
+            </div>
+            <div id="owns-carrier-fields">
+              <div class="form-group">
+                <label class="form-label">캐리어 모델명</label>
+                <input type="text" id="s-carrier-model" class="form-input" placeholder="예: 리모와 에센셜 20인치" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">구매 연도</label>
+                <input type="number" id="s-carrier-year" class="form-input" placeholder="예: 2022" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">사진 URL (선택)</label>
+                <input type="text" id="s-carrier-photo" class="form-input" placeholder="https://..." />
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">1년에 여행/출장으로 캐리어를 사용하는 날은 며칠 정도인가요?</label>
+              <input type="number" id="s-travel-days" class="form-input" placeholder="예: 10" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">캐리어가 집에 있을 때 공간 부족 문제를 겪고 계신가요?</label>
+              <div class="signup-toggle-row">
+                <button type="button" class="signup-toggle-btn" id="storage-issue-yes" onclick="setHasStorageIssue(true)">네, 불편해요</button>
+                <button type="button" class="signup-toggle-btn active" id="storage-issue-no" onclick="setHasStorageIssue(false)">아니요</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 4: mandatory legal consent -->
+          <div class="signup-step" id="signup-step-4" style="display: none;">
+            <div class="consent-box">
+              <label class="consent-row">
+                <input type="checkbox" id="agree-terms" onchange="onConsentChange()" />
+                <span>(필수) <a href="#" onclick="openLegalModal('terms'); return false;">이용약관</a>에 동의합니다.</span>
+              </label>
+              <label class="consent-row">
+                <input type="checkbox" id="agree-privacy" onchange="onConsentChange()" />
+                <span>(필수) <a href="#" onclick="openLegalModal('privacy'); return false;">개인정보 수집·이용</a>에 동의합니다.</span>
+              </label>
+              <label class="consent-row">
+                <input type="checkbox" id="agree-all" onchange="toggleAgreeAll()" />
+                <span style="font-weight: 700;">전체 동의</span>
+              </label>
+            </div>
+            <div class="form-hint">이름, 휴대폰 번호, 동네(위치), 캐리어 보유/이용 습관 등의 정보를 1:1 매칭 및 서비스 제공 목적으로 수집합니다. 동의하지 않으면 가입이 불가합니다.</div>
+          </div>
+
+          <div id="login-modal-error-signup" style="color: var(--accent-red); font-size: 12px; display: none;"></div>
+
+          <div class="signup-nav-row">
+            <button class="btn-orange" style="background: #e5e5ea; color: var(--text-primary); display: none;" id="signup-back-btn" onclick="signupWizardBack()">이전</button>
+            <button class="btn-orange" id="signup-next-btn" onclick="signupWizardNext()">다음</button>
+          </div>
           <button class="btn-logout" style="align-self: center;" onclick="toggleAuthMode()" id="login-mode-toggle">
             이미 가입했어요, 로그인할게요
           </button>
@@ -987,7 +1141,17 @@
       </div>
     </div>
 
+    <!-- Legal document modal (terms of service / privacy policy) -->
+    <div class="modal-overlay" id="legal-modal">
+      <div class="modal-card">
+        <h2 class="modal-title" id="legal-modal-title">이용약관</h2>
+        <div id="legal-modal-body" style="font-size: 13px; color: var(--text-secondary); line-height: 1.6; max-height: 300px; overflow-y: auto; white-space: pre-line; margin-bottom: 16px;"></div>
+        <button class="btn-orange" onclick="closeLegalModal()">닫기</button>
+      </div>
+    </div>
+
     <!-- Owner Contact Release Sheet Modal -->
+
     <div class="modal-overlay" id="owner-release-modal">
       <div class="modal-card" style="text-align: center;">
         <div style="font-size: 40px; margin-bottom: 12px;">🎉</div>
@@ -1080,10 +1244,31 @@
         }
       }
 
+      // Personalized "동네" badge (배민/당근마켓 style): shows the logged-in
+      // user's own neighborhood instead of the generic MVP tagline once known.
+      function renderLocationBadge() {
+        const badge = document.getElementById('location-badge');
+        if (!badge) return;
+        badge.innerText = currentUser && currentUser.district
+          ? `📍 ${currentUser.district} 근처 이웃과 거래 중`
+          : '📍 당근마켓형 C2C 지도 대여 MVP';
+      }
+
+      // --- Signup wizard state (4-step onboarding) ---
+      let signupStep = 1;
+      const SIGNUP_TOTAL_STEPS = 4;
+      let signupOwnsCarrier = true;
+      let signupHasStorageIssue = false;
+      const SIGNUP_STEP_LABELS = ['기본 정보', '우리 동네', '캐리어 & 이용 습관', '약관 동의'];
+
       function openLoginModal() {
         authMode = 'signup';
+        signupStep = 1;
+        signupOwnsCarrier = true;
+        signupHasStorageIssue = false;
         applyAuthModeUI();
         document.getElementById('login-modal-error').style.display = 'none';
+        document.getElementById('login-modal-error-signup').style.display = 'none';
         document.getElementById('login-modal').style.display = 'flex';
       }
 
@@ -1093,27 +1278,182 @@
 
       function toggleAuthMode() {
         authMode = authMode === 'signup' ? 'login' : 'signup';
+        signupStep = 1;
         applyAuthModeUI();
       }
 
       function applyAuthModeUI() {
         const isSignup = authMode === 'signup';
         document.getElementById('login-modal-title').innerText = isSignup ? '👤 회원가입' : '👤 로그인';
-        document.getElementById('login-nickname-group').style.display = isSignup ? 'block' : 'none';
-        document.getElementById('login-submit-btn').innerText = isSignup ? '가입하고 시작하기' : '로그인하기';
+        document.getElementById('login-step-login').style.display = isSignup ? 'none' : 'flex';
+        document.getElementById('login-step-signup').style.display = isSignup ? 'flex' : 'none';
         document.getElementById('login-mode-toggle').innerText = isSignup
           ? '이미 가입했어요, 로그인할게요'
           : '아직 계정이 없어요, 가입할게요';
+        if (isSignup) renderSignupStep();
+      }
+
+      function renderSignupStep() {
+        for (let i = 1; i <= SIGNUP_TOTAL_STEPS; i++) {
+          const el = document.getElementById(`signup-step-${i}`);
+          if (el) el.style.display = i === signupStep ? 'block' : 'none';
+        }
+        document.getElementById('signup-progress').innerText = `${signupStep} / ${SIGNUP_TOTAL_STEPS} · ${SIGNUP_STEP_LABELS[signupStep - 1]}`;
+        document.getElementById('signup-back-btn').style.display = signupStep > 1 ? 'block' : 'none';
+        document.getElementById('signup-next-btn').innerText = signupStep === SIGNUP_TOTAL_STEPS ? '가입하고 시작하기' : '다음';
+      }
+
+      function setOwnsCarrier(owns) {
+        signupOwnsCarrier = owns;
+        document.getElementById('owns-carrier-yes').classList.toggle('active', owns);
+        document.getElementById('owns-carrier-no').classList.toggle('active', !owns);
+        document.getElementById('owns-carrier-fields').style.display = owns ? 'block' : 'none';
+      }
+
+      function setHasStorageIssue(hasIssue) {
+        signupHasStorageIssue = hasIssue;
+        document.getElementById('storage-issue-yes').classList.toggle('active', hasIssue);
+        document.getElementById('storage-issue-no').classList.toggle('active', !hasIssue);
+      }
+
+      function onConsentChange() {
+        const terms = document.getElementById('agree-terms').checked;
+        const privacy = document.getElementById('agree-privacy').checked;
+        document.getElementById('agree-all').checked = terms && privacy;
+      }
+
+      function toggleAgreeAll() {
+        const checked = document.getElementById('agree-all').checked;
+        document.getElementById('agree-terms').checked = checked;
+        document.getElementById('agree-privacy').checked = checked;
+      }
+
+      const LEGAL_DOCS = {
+        terms: {
+          title: '이용약관',
+          body: `제1조 (목적)
+이 약관은 Luggy(이하 "회사")가 제공하는 이웃 간 캐리어 직거래 중개 서비스(이하 "서비스")의 이용조건 및 절차를 규정함을 목적으로 합니다.
+
+제2조 (서비스의 성격)
+1. 회사는 이용자 간 1:1 직거래를 위한 정보 게시 및 연결 기능만을 제공하며, 결제 대행(PG), 중앙 보관, 배송 등은 제공하지 않습니다.
+2. 물품 인도, 대여료 정산, 분쟁 해결은 이용자 간 직접 협의로 이루어집니다.
+
+제3조 (회원의 의무)
+1. 회원은 가입 시 정확한 정보(닉네임, 휴대폰 번호, 동네 등)를 제공해야 합니다.
+2. 회원은 실제 소유/보관 중인 물품만 등록해야 하며, 허위 매물 등록은 금지됩니다.
+
+제4조 (면책)
+회사는 이용자 간 직거래 과정에서 발생하는 분쟁, 물품 파손, 반납 지연 등에 대해 직접적인 책임을 지지 않습니다.`
+        },
+        privacy: {
+          title: '개인정보 수집·이용 동의',
+          body: `회사는 서비스 제공을 위해 아래와 같이 개인정보를 수집·이용합니다.
+
+1. 수집 항목
+- 필수: 닉네임, 휴대폰 번호, 동네(위치 정보)
+- 선택: 캐리어 보유 여부, 모델명, 구매 연도, 사진, 연간 여행일수, 보관 공간 불편 여부
+
+2. 수집 목적
+- 회원 식별 및 로그인
+- 동네 기반 매물 매칭 및 1:1 직거래 연결
+- 서비스 품질 개선을 위한 이용 습관 분석(캐리어 보유/여행 빈도 등)
+
+3. 보유 및 이용 기간
+회원 탈퇴 시까지 보유하며, 탈퇴 즉시 파기합니다.
+
+4. 동의 거부 권리
+위 개인정보 수집·이용에 동의하지 않을 권리가 있으나, 동의하지 않을 경우 회원가입 및 서비스 이용이 제한됩니다.`
+        }
+      };
+
+      function openLegalModal(kind) {
+        const doc = LEGAL_DOCS[kind];
+        if (!doc) return;
+        document.getElementById('legal-modal-title').innerText = doc.title;
+        document.getElementById('legal-modal-body').innerText = doc.body;
+        document.getElementById('legal-modal').style.display = 'flex';
+      }
+
+      function closeLegalModal() {
+        document.getElementById('legal-modal').style.display = 'none';
+      }
+
+      function signupWizardBack() {
+        if (signupStep > 1) {
+          signupStep -= 1;
+          renderSignupStep();
+        }
+      }
+
+      function signupWizardNext() {
+        const errorBox = document.getElementById('login-modal-error-signup');
+        errorBox.style.display = 'none';
+
+        if (signupStep === 1) {
+          const nickname = document.getElementById('s-nickname').value.trim();
+          const phone = document.getElementById('s-phone').value.trim();
+          if (!nickname || !phone) {
+            errorBox.innerText = '닉네임과 휴대폰 번호를 모두 입력해주세요.';
+            errorBox.style.display = 'block';
+            return;
+          }
+        } else if (signupStep === 2) {
+          const district = document.getElementById('s-district').value.trim();
+          if (!district) {
+            errorBox.innerText = '우리 동네(예: 강남구 역삼동)를 입력해주세요.';
+            errorBox.style.display = 'block';
+            return;
+          }
+        } else if (signupStep === 3) {
+          if (signupOwnsCarrier && !document.getElementById('s-carrier-model').value.trim()) {
+            errorBox.innerText = '보유중인 캐리어의 모델명을 입력해주세요.';
+            errorBox.style.display = 'block';
+            return;
+          }
+        } else if (signupStep === SIGNUP_TOTAL_STEPS) {
+          submitAuth();
+          return;
+        }
+
+        signupStep += 1;
+        renderSignupStep();
       }
 
       async function submitAuth() {
-        const nickname = document.getElementById('l-nickname').value.trim();
-        const phone = document.getElementById('l-phone').value.trim();
-        const errorBox = document.getElementById('login-modal-error');
+        const errorBox = authMode === 'signup'
+          ? document.getElementById('login-modal-error-signup')
+          : document.getElementById('login-modal-error');
         errorBox.style.display = 'none';
 
-        const endpoint = authMode === 'signup' ? '/auth/signup' : '/auth/login';
-        const body = authMode === 'signup' ? { nickname, phone } : { phone };
+        let endpoint, body;
+        if (authMode === 'signup') {
+          const agreedToTerms = document.getElementById('agree-terms').checked;
+          const agreedToPrivacy = document.getElementById('agree-privacy').checked;
+          if (!agreedToTerms || !agreedToPrivacy) {
+            errorBox.innerText = '이용약관 및 개인정보 수집·이용에 모두 동의해야 가입할 수 있습니다.';
+            errorBox.style.display = 'block';
+            return;
+          }
+          endpoint = '/auth/signup';
+          body = {
+            nickname: document.getElementById('s-nickname').value.trim(),
+            phone: document.getElementById('s-phone').value.trim(),
+            district: document.getElementById('s-district').value.trim(),
+            ownsCarrier: signupOwnsCarrier,
+            carrierModel: signupOwnsCarrier ? document.getElementById('s-carrier-model').value.trim() : undefined,
+            carrierPurchaseYear: signupOwnsCarrier && document.getElementById('s-carrier-year').value
+              ? Number(document.getElementById('s-carrier-year').value) : undefined,
+            carrierPhotoUrl: signupOwnsCarrier ? document.getElementById('s-carrier-photo').value.trim() || undefined : undefined,
+            travelDaysPerYear: document.getElementById('s-travel-days').value
+              ? Number(document.getElementById('s-travel-days').value) : undefined,
+            hasStorageIssue: signupHasStorageIssue,
+            agreedToTerms,
+            agreedToPrivacy
+          };
+        } else {
+          endpoint = '/auth/login';
+          body = { phone: document.getElementById('l-phone-login').value.trim() };
+        }
 
         try {
           const res = await fetch(`${API_BASE}${endpoint}`, {
@@ -1125,6 +1465,7 @@
           if (!res.ok) {
             errorBox.innerText = data.message || '요청 처리 중 오류가 발생했습니다.';
             errorBox.style.display = 'block';
+            if (authMode === 'signup') { signupStep = SIGNUP_TOTAL_STEPS; renderSignupStep(); }
             return;
           }
           authToken = data.token;
@@ -1132,6 +1473,7 @@
           localStorage.setItem('luggy_token', authToken);
           localStorage.setItem('luggy_user', JSON.stringify(currentUser));
           renderAuthArea();
+          renderLocationBadge();
           closeLoginModal();
           logFunnelEvent(authMode === 'signup' ? 'signup_complete' : 'login_complete', { userId: currentUser.id });
           fetchFavoriteIds();
@@ -1148,6 +1490,7 @@
         localStorage.removeItem('luggy_token');
         localStorage.removeItem('luggy_user');
         renderAuthArea();
+        renderLocationBadge();
         logFunnelEvent('logout');
       }
 
@@ -1305,14 +1648,31 @@
 
       function loadKakaoMapSdkGlobally(appKey) {
         if (!appKey) return false;
-        if (window.kakao && window.kakao.maps) {
+        if (window.kakao && window.kakao.maps && window.kakao.maps.LatLng) {
           initKakaoMap();
           return true;
         }
         const script = document.createElement('script');
         script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${appKey}&autoload=false`;
+        let settled = false;
+        // Kakao's own SDK internally fetches an additional chunk
+        // (mapjsapi/js/main/...) via kakao.maps.load(). That request can hang
+        // or fail silently (e.g. blocked plain-HTTP resource on strict
+        // networks) without ever invoking our callback or triggering
+        // script.onerror. Guard with a timeout so the map never gets stuck
+        // in a permanently blank state.
+        const fallbackToLeaflet = () => {
+          if (settled) return;
+          settled = true;
+          isKakaoMap = false;
+          initLeafletMap();
+        };
+        const kakaoLoadTimeout = setTimeout(fallbackToLeaflet, 5000);
         script.onload = () => {
           window.kakao.maps.load(() => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(kakaoLoadTimeout);
             initKakaoMap();
           });
         };
@@ -1320,8 +1680,8 @@
           // Invalid key, network block, or blocked domain: fall back to the
           // zero-config Leaflet/OpenStreetMap renderer instead of leaving a
           // permanently blank map.
-          isKakaoMap = false;
-          initLeafletMap();
+          clearTimeout(kakaoLoadTimeout);
+          fallbackToLeaflet();
         };
         document.head.appendChild(script);
         return true;
@@ -1825,6 +2185,7 @@
       // Initialize default search on load
       window.addEventListener('DOMContentLoaded', () => {
         renderAuthArea();
+        renderLocationBadge();
         fetchFavoriteIds().then(() => executeSearch());
         renderHomeDashboard();
       });

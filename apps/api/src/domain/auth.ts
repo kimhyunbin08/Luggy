@@ -29,3 +29,11 @@ export function generateSessionToken(): string {
   // Simple opaque token; sufficient for an in-memory MVP session store.
   return `sess_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
 }
+
+// Onboarding step 2: neighborhood address, in the "구 동" style used
+// throughout the app (e.g. carrier.district = "강남구 역삼동"), so the
+// personalized "동네" badge can reuse the exact same format as listings.
+export function isValidDistrict(rawDistrict: string): boolean {
+  const trimmed = rawDistrict.trim();
+  return trimmed.length >= 2 && trimmed.length <= 30;
+}

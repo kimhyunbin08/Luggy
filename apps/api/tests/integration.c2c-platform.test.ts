@@ -10,7 +10,7 @@ describe('integration: auth (signup/login/me)', () => {
   const app = createApp();
 
   it('signs up a new user and returns a usable session token', async () => {
-    const signup = await request(app).post('/auth/signup').send({ nickname: '역삼동김철수', phone: '010-1111-9999' });
+    const signup = await request(app).post('/auth/signup').send({ nickname: '역삼동김철수', phone: '010-1111-9999', district: '강남구 역삼동', ownsCarrier: false, agreedToTerms: true, agreedToPrivacy: true });
     expect(signup.status).toBe(201);
     expect(signup.body.token).toBeTruthy();
     expect(signup.body.user.phone).toBe('010-1111-9999');
@@ -21,18 +21,46 @@ describe('integration: auth (signup/login/me)', () => {
   });
 
   it('rejects signup with an invalid phone number', async () => {
-    const res = await request(app).post('/auth/signup').send({ nickname: '테스터', phone: 'not-a-phone' });
+    const res = await request(app).post('/auth/signup').send({ nickname: '테스터', phone: 'not-a-phone', district: '강남구 역삼동', ownsCarrier: false, agreedToTerms: true, agreedToPrivacy: true });
     expect(res.status).toBe(400);
   });
 
   it('rejects duplicate signup for the same phone number', async () => {
-    await request(app).post('/auth/signup').send({ nickname: '중복테스트', phone: '010-2222-3333' });
-    const dup = await request(app).post('/auth/signup').send({ nickname: '중복테스트2', phone: '010-2222-3333' });
+    await request(app).post('/auth/signup').send({ nickname: '중복테스트', phone: '010-2222-3333', district: '강남구 역삼동', ownsCarrier: false, agreedToTerms: true, agreedToPrivacy: true });
+    const dup = await request(app).post('/auth/signup').send({ nickname: '중복테스트2', phone: '010-2222-3333', district: '강남구 역삼동', ownsCarrier: false, agreedToTerms: true, agreedToPrivacy: true });
     expect(dup.status).toBe(409);
   });
 
+  it('rejects signup when the terms of service are not agreed to', async () => {
+    const res = await request(app).post('/auth/signup').send({
+      nickname: '약관미동의', phone: '010-4444-5555', district: '강남구 역삼동', ownsCarrier: false,
+      agreedToTerms: false, agreedToPrivacy: true
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toContain('동의');
+  });
+
+  it('rejects signup when the privacy policy is not agreed to', async () => {
+    const res = await request(app).post('/auth/signup').send({
+      nickname: '개인정보미동의', phone: '010-4444-6666', district: '강남구 역삼동', ownsCarrier: false,
+      agreedToTerms: true, agreedToPrivacy: false
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toContain('동의');
+  });
+
+  it('records the consent timestamps on a successful signup', async () => {
+    const res = await request(app).post('/auth/signup').send({
+      nickname: '동의완료', phone: '010-4444-7777', district: '강남구 역삼동', ownsCarrier: false,
+      agreedToTerms: true, agreedToPrivacy: true
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.user.agreedToTermsAt).toBeTruthy();
+    expect(res.body.user.agreedToPrivacyAt).toBeTruthy();
+  });
+
   it('logs an existing user back in by phone number and rejects unknown numbers', async () => {
-    await request(app).post('/auth/signup').send({ nickname: '로그인테스트', phone: '010-3333-4444' });
+    await request(app).post('/auth/signup').send({ nickname: '로그인테스트', phone: '010-3333-4444', district: '강남구 역삼동', ownsCarrier: false, agreedToTerms: true, agreedToPrivacy: true });
     const login = await request(app).post('/auth/login').send({ phone: '010-3333-4444' });
     expect(login.status).toBe(200);
     expect(login.body.user.nickname).toBe('로그인테스트');
@@ -51,7 +79,7 @@ describe('integration: favorites (찜하기)', () => {
   const app = createApp();
 
   async function signUpUser(phone: string, nickname: string) {
-    const res = await request(app).post('/auth/signup').send({ nickname, phone });
+    const res = await request(app).post('/auth/signup').send({ nickname, phone, district: '강남구 역삼동', ownsCarrier: false, agreedToTerms: true, agreedToPrivacy: true });
     return res.body.token as string;
   }
 
@@ -115,7 +143,7 @@ describe('integration: owner-scoped carrier registration + contact requests', ()
   const app = createApp();
 
   it('attaches the logged-in owner to a newly registered carrier and lets them view received requests', async () => {
-    const signup = await request(app).post('/auth/signup').send({ nickname: '소유자테스트', phone: '010-5555-6666' });
+    const signup = await request(app).post('/auth/signup').send({ nickname: '소유자테스트', phone: '010-5555-6666', district: '강남구 역삼동', ownsCarrier: false, agreedToTerms: true, agreedToPrivacy: true });
     const token = signup.body.token as string;
 
     const carrierRes = await request(app)
@@ -141,7 +169,7 @@ describe('integration: chat (1:1 direct chat threads on a contact request)', () 
   const app = createApp();
 
   async function signUpUser(phone: string, nickname: string) {
-    const res = await request(app).post('/auth/signup').send({ nickname, phone });
+    const res = await request(app).post('/auth/signup').send({ nickname, phone, district: '강남구 역삼동', ownsCarrier: false, agreedToTerms: true, agreedToPrivacy: true });
     return { token: res.body.token as string, user: res.body.user };
   }
 

@@ -265,3 +265,53 @@
 2. 스레드 열기 -> 메시지 전송 -> 렌터/소유자 양측 말풍선 정렬 확인
 3. 채팅 패널 상태 변경 버튼(예약 확정/반납 완료)으로 상태 전환 -> `⭐ 후기 남기기` 버튼 노출 확인
 4. `렌탈 > 내 캐리어 관리`가 로그인한 소유자 본인 매물만 표시하는지 확인
+
+## 18. 개인화 온보딩(4단계 가입 위저드) 및 필수 약관 동의 API/데이터 (신규 기능)
+`apps/api/src/domain/auth.ts`, `apps/api/src/server.ts`, `apps/web/index.html`에 구현되어 있다.
+
+### 18.1 `User` 타입 확장
+```
+type User = {
+  id, nickname, phone, createdAt,
+  district: string,
+  ownsCarrier: boolean,
+  carrierModel?: string,
+  carrierPurchaseYear?: number,
+  carrierPhotoUrl?: string,
+  travelDaysPerYear?: number,
+  hasStorageIssue?: boolean,
+  agreedToTermsAt: string,   // ISO timestamp, 동의 증빙
+  agreedToPrivacyAt: string, // ISO timestamp, 동의 증빙
+}
+```
+
+### 18.2 `POST /auth/signup` 검증 규칙
+1. `isValidDistrict(district)`(`apps/api/src/domain/auth.ts`, 2~30자 trimmed 길이 검증) 통과해야 함. 실패 시 400.
+2. `ownsCarrier: true`인데 `carrierModel`이 없으면 400.
+3. `agreedToTerms`, `agreedToPrivacy` 중 하나라도 falsy면 400, 메시지: "이용약관 및 개인정보 수집·이용에 모두 동의해야 가입할 수 있습니다." — 이 검증은 서버 측에서 강제되며 클라이언트 조작으로 우회할 수 없다.
+4. 검증을 모두 통과하면 `agreedToTermsAt`/`agreedToPrivacyAt`을 `createdAt`과 동일한 `now` 값으로 기록한다.
+
+### 18.3 프런트엔드 위저드 구현 (`apps/web/index.html`)
+- 모달 구조: `#login-step-login`(단일 로그인 폼) / `#login-step-signup`(4단계 위저드: `#signup-step-1~4`).
+- 상태: `signupStep`(1~4), `signupOwnsCarrier`, `signupHasStorageIssue`.
+- `signupWizardNext()`/`signupWizardBack()`: 단계별 필수값 검증 후 단계 이동, 마지막 단계에서는 `submitAuth()` 호출.
+- `setOwnsCarrier(bool)`/`setHasStorageIssue(bool)`: 토글 버튼 active 상태 및 캐리어 상세 입력 필드 표시/숨김 제어.
+- `onConsentChange()`/`toggleAgreeAll()`: 개별 동의 체크박스 <-> "전체 동의" 체크박스 양방향 동기화.
+- `openLegalModal(kind)`/`closeLegalModal()`: `LEGAL_DOCS.terms`/`LEGAL_DOCS.privacy` 텍스트를 `#legal-modal`에 표시.
+- `renderLocationBadge()`: `#location-badge`에 로그인 사용자의 `district`를 반영("📍 {동네} 근처 이웃과 거래 중"), 비로그인 시 기본 태그라인. `DOMContentLoaded`, 로그인 성공, 로그아웃 시 각각 호출된다.
+
+### 18.4 테스트 시나리오 (신규 기능)
+#### 단위 테스트 (`apps/api/src/domain/auth.ts`)
+1. `isValidDistrict`: 빈 문자열/공백/2자 미만/30자 초과 거부, 정상 "구 동" 문자열 허용
+
+#### 통합 테스트 (`apps/api/tests/integration.c2c-platform.test.ts`)
+1. `agreedToTerms: false` 또는 `agreedToPrivacy: false`로 가입 시도 시 400 및 안내 메시지 확인
+2. 정상 가입 시 응답에 `agreedToTermsAt`/`agreedToPrivacyAt`이 포함되는지 확인
+3. (기존 8개 시그니처에 `district`/`ownsCarrier`/동의 필드 추가 반영 완료, 48/48 통과)
+
+#### E2E 테스트 (수동/브라우저 캔버스로 검증)
+1. 가입 모달 오픈 -> 1단계(닉네임/전화) 미입력 시 다음 단계 진행 차단 확인
+2. 2단계(동네) 미입력 시 진행 차단, 입력 후 3단계 진행 확인
+3. 3단계에서 캐리어 보유 "있음" 선택 후 모델명 미입력 시 진행 차단, 입력 후 4단계 진행 확인
+4. 4단계에서 동의 없이 제출 시 차단 메시지 노출 확인, "전체 동의" 체크 후 제출 성공 확인
+5. 가입 성공 후 헤더 배지가 "📍 강남구 역삼동 근처 이웃과 거래 중" 형태로 갱신되는지 확인, 로그아웃 후 기본 태그라인 복귀 확인
