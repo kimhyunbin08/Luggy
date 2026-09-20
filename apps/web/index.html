@@ -950,7 +950,7 @@
           <div style="display: flex; flex-direction: column; gap: 14px;">
             <div class="form-group">
               <label class="form-label">캐리어 브랜드 / 모델명</label>
-              <input type="text" id="p-brand" class="form-input" placeholder="예: 리모와 에센셜 20인치" value="샘소나이트 스마트 20인치" />
+              <input type="text" id="p-brand" class="form-input" placeholder="예: 리모와 에센셜 20인치" />
             </div>
             <div style="display: flex; gap: 10px;">
               <div class="form-group" style="flex:1;">
@@ -967,25 +967,25 @@
             </div>
             <div class="form-group">
               <label class="form-label">거래 가능 동네 / 구</label>
-              <input type="text" id="p-district" class="form-input" placeholder="예: 강남구 역삼동" value="강남구 역삼동" />
+              <input type="text" id="p-district" class="form-input" placeholder="예: 강남구 역삼동" />
             </div>
             <div style="display: flex; gap: 10px;">
               <div class="form-group" style="flex:1;">
                 <label class="form-label">소유자 닉네임</label>
-                <input type="text" id="p-owner-name" class="form-input" value="역삼동이웃" />
+                <input type="text" id="p-owner-name" class="form-input" placeholder="예: 역삼동이웃" />
               </div>
               <div class="form-group" style="flex:1;">
                 <label class="form-label">연락처 (전화번호)</label>
-                <input type="text" id="p-owner-contact" class="form-input" value="010-9876-5432" />
+                <input type="text" id="p-owner-contact" class="form-input" placeholder="예: 010-1234-5678" />
               </div>
             </div>
             <div class="form-group">
               <label class="form-label">사진 URL (선택)</label>
-              <input type="text" id="p-photo" class="form-input" placeholder="https://..." value="https://images.unsplash.com/photo-1565026057447-b88e3f291029?auto=format&fit=crop&w=600&q=80" />
+              <input type="text" id="p-photo" class="form-input" placeholder="https://..." />
             </div>
             <div class="form-group">
               <label class="form-label">상세 설명 및 희망 거래 장소</label>
-              <textarea id="p-desc" class="form-input" style="height: 80px;">역삼역 3번 출구 근처에서 직거래 희망합니다. 깨끗하게 사용한 캐리어입니다.</textarea>
+              <textarea id="p-desc" class="form-input" style="height: 80px;" placeholder="예: 역삼역 3번 출구 근처에서 직거래 희망합니다. 깨끗하게 사용한 캐리어입니다."></textarea>
             </div>
             <button class="btn-orange" onclick="submitNewCarrier()">📸 내 동네 매물로 등록하기</button>
           </div>
@@ -1083,20 +1083,20 @@
         <div style="display: flex; flex-direction: column; gap: 12px;">
           <div class="form-group">
             <label class="form-label">대여자 이름</label>
-            <input type="text" id="m-renter-name" class="form-input" value="김대여" />
+            <input type="text" id="m-renter-name" class="form-input" placeholder="이름을 입력해주세요" />
           </div>
           <div class="form-group">
             <label class="form-label">대여자 연락처</label>
-            <input type="text" id="m-renter-phone" class="form-input" value="010-1234-5678" />
+            <input type="text" id="m-renter-phone" class="form-input" placeholder="010-1234-5678" />
           </div>
           <div style="display: flex; gap: 8px;">
             <div class="form-group" style="flex:1;">
               <label class="form-label">대여 시작일</label>
-              <input type="date" id="m-start-date" class="form-input" value="2026-08-10" onchange="updateModalPriceCalc()" />
+              <input type="date" id="m-start-date" class="form-input" onchange="updateModalPriceCalc()" />
             </div>
             <div class="form-group" style="flex:1;">
               <label class="form-label">대여 종료일</label>
-              <input type="date" id="m-end-date" class="form-input" value="2026-08-12" onchange="updateModalPriceCalc()" />
+              <input type="date" id="m-end-date" class="form-input" onchange="updateModalPriceCalc()" />
             </div>
           </div>
           <div class="form-group">
@@ -1698,6 +1698,7 @@
           fetchAndRenderFavorites();
         } else if (tabName === 'rental') {
           renderProviderCarrierList();
+          prefillProviderOwnerFields();
         } else if (tabName === 'chat') {
           fetchChatList();
         } else if (tabName === 'settings') {
@@ -1855,11 +1856,9 @@
           renderMapPins(currentCarriers);
           renderCarrierCards(currentCarriers);
         } catch (err) {
-          currentCarriers = [
-            { id: 'c1', brandModel: '리모와 에센셜 캐빈 (20인치)', size: 'carry_on', district: '강남구 역삼동', lat: 37.4979, lng: 127.0276, dailyPrice: 7900, ownerName: '역삼동이웃', ownerContact: '010-9876-5432', rating: 4.9, reviews: 18, photoUrl: 'https://images.unsplash.com/photo-1565026057447-b88e3f291029?auto=format&fit=crop&w=600&q=80', description: '역삼역 3번 출구 근처 직거래 가능합니다.' },
-            { id: 'c2', brandModel: '샘소나이트 에어로스 20인치', size: 'carry_on', district: '서초구 서초동', lat: 37.4918, lng: 127.0079, dailyPrice: 7000, ownerName: '서초트래블러', ownerContact: '010-8765-4321', rating: 4.8, reviews: 12, photoUrl: 'https://images.unsplash.com/photo-1581553680321-4fffae59febd?auto=format&fit=crop&w=600&q=80', description: '교대역/서초역 부근 거래 가능합니다.' },
-            { id: 'c3', brandModel: '샘소나이트 시큐리티 24인치', size: 'medium', district: '마포구 연남동', lat: 37.5623, lng: 126.9242, dailyPrice: 11900, ownerName: '연남여행자', ownerContact: '010-7654-3210', rating: 4.9, reviews: 24, photoUrl: 'https://images.unsplash.com/photo-1581553680321-4fffae59febd?auto=format&fit=crop&w=600&q=80', description: '유럽 여행에 딱 좋은 24인치 수하물용 캐리어입니다.' }
-          ];
+          // No network fallback to fake listings — an empty result set is shown
+          // instead so users never see placeholder/ghost carriers.
+          currentCarriers = [];
           renderMapPins(currentCarriers);
           renderCarrierCards(currentCarriers);
         }
@@ -1941,6 +1940,10 @@
       }
 
       function renderCardsInto(grid, items) {
+        if (items.length === 0) {
+          grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 32px; background: var(--card-bg); border-radius: var(--radius-lg); color: var(--text-secondary); border: 1px solid var(--border-color);">아직 등록된 캐리어가 없습니다. '내 캐리어 등록하기'에서 첫 매물을 올려보세요!</div>`;
+          return;
+        }
         grid.innerHTML = items.map(item => `
           <div class="carrier-card">
             <div class="carrier-img-wrap">
@@ -2127,6 +2130,11 @@
 
         document.getElementById('modal-carrier-title').innerText = `[${selectedCarrier.district}] ${selectedCarrier.brandModel}`;
         document.getElementById('modal-carrier-info').innerText = `소유자: ${selectedCarrier.ownerName} | 1일 대여료: ${selectedCarrier.dailyPrice.toLocaleString()}원`;
+        // Prefill with the logged-in user's own name/phone (never fake data).
+        if (currentUser) {
+          document.getElementById('m-renter-name').value = currentUser.nickname || '';
+          document.getElementById('m-renter-phone').value = currentUser.phone || '';
+        }
         updateModalPriceCalc();
         document.getElementById('contact-modal').style.display = 'flex';
       }
@@ -2416,6 +2424,16 @@
         } catch (err) {
           alert('네트워크 오류로 캐리어 등록에 실패했습니다. 잠시 후 다시 시도해주세요.');
         }
+      }
+
+      // Prefill the provider-registration owner fields with the logged-in user's
+      // own nickname/phone (never fake seed data). Only overwrites empty fields.
+      function prefillProviderOwnerFields() {
+        if (!currentUser) return;
+        const nameField = document.getElementById('p-owner-name');
+        const contactField = document.getElementById('p-owner-contact');
+        if (nameField && !nameField.value) nameField.value = currentUser.nickname || '';
+        if (contactField && !contactField.value) contactField.value = currentUser.phone || '';
       }
 
       async function renderProviderCarrierList() {

@@ -106,12 +106,12 @@ type Review = {
   createdAt: string;
 };
 
-const carriers: CarrierItem[] = [
+const carriers: CarrierItem[] = process.env.NODE_ENV === 'test' ? [
   { id: 'c1', size: 'carry_on' as CarrierSize, brandModel: '리모와 에센셜 캐빈 (20인치)', dailyPrice: 7900, district: '강남구 역삼동', lat: 37.4979, lng: 127.0276, ownerName: '역삼동이웃', ownerContact: '010-9876-5432', rating: 4.9, reviews: 18, photoUrl: 'https://images.unsplash.com/photo-1565026057447-b88e3f291029?auto=format&fit=crop&w=600&q=80', description: '1회 사용한 깨끗한 리모와 캐리어입니다. 역삼역 3번 출구 근처에서 직거래 가능합니다.', optIn: true, available: true, remainingQuantity: 1, originalPrice: 45000 },
   { id: 'c2', size: 'carry_on' as CarrierSize, brandModel: '샘소나이트 에어로스 20인치', dailyPrice: 7000, district: '서초구 서초동', lat: 37.4918, lng: 127.0079, ownerName: '서초트래블러', ownerContact: '010-8765-4321', rating: 4.8, reviews: 12, photoUrl: 'https://images.unsplash.com/photo-1581553680321-4fffae59febd?auto=format&fit=crop&w=600&q=80', description: '가볍고 튼튼한 샘소나이트 기내용 캐리어입니다. 교대역/서초역 부근 거래 환영합니다.', optIn: true, available: true, remainingQuantity: 1, originalPrice: 35000 },
   { id: 'c3', size: 'medium' as CarrierSize, brandModel: '샘소나이트 시큐리티 24인치 (Medium)', dailyPrice: 11900, district: '마포구 연남동', lat: 37.5623, lng: 126.9242, ownerName: '연남여행자', ownerContact: '010-7654-3210', rating: 4.9, reviews: 24, photoUrl: 'https://images.unsplash.com/photo-1581553680321-4fffae59febd?auto=format&fit=crop&w=600&q=80', description: '유럽 여행 다녀올 때 썼던 24인치 중형 캐리어입니다. 수하물용으로 넉넉합니다.', optIn: true, available: true, remainingQuantity: 1, originalPrice: 50000 },
   { id: 'c4', size: 'medium' as CarrierSize, brandModel: '아메리칸투어리스터 스카이 24인치', dailyPrice: 10000, district: '송파구 잠실동', lat: 37.5133, lng: 127.1001, ownerName: '잠실이웃', ownerContact: '010-6543-2109', rating: 4.7, reviews: 9, photoUrl: 'https://images.unsplash.com/photo-1565026057447-b88e3f291029?auto=format&fit=crop&w=600&q=80', description: '잠실새내역근처 직거래 원합니다. TSA 잠금장치 완비되어 있습니다.', optIn: true, available: true, remainingQuantity: 1, originalPrice: 40000 }
-];
+] : [];
 const contactRequests: ContactRequest[] = [];
 const bookings = new Map<string, Booking>();
 
