@@ -231,3 +231,37 @@
 2. 캐리어 카드 하트 클릭(찜) -> `❤️ 찜한 캐리어` 탭에서 확인
 3. 완료 처리된 1:1 문의에서 리뷰 제출 -> 캐리어 상세/카드 평점 갱신 확인
 4. (알려진 갭) 현재 `apps/web/e2e/gate.spec.ts`는 실제 앱이 아닌 `data:text/html` 정적 스텁을 검증하는 자리표시자 테스트다. 로그인/찜/리뷰 흐름을 검증하는 실제 브라우저 기반 E2E는 아직 이 저장소의 자동화된 Playwright 스위트에 포함되어 있지 않으며(수동/브라우저 캔버스로 검증됨), 후속 작업으로 추가가 필요하다.
+
+## 17. 상단 5-tab IA 및 1:1 채팅 API/데이터 (C2C 플랫폼 신규 기능)
+상단 내비게이션을 홈/대여/렌탈/채팅/설정 5개 탭으로 재구성하고, 문의(ContactRequest) 기반 1:1 채팅을 신규 구현했다. `apps/api/src/server.ts` 및 `apps/web/index.html`에 구현되어 있다.
+
+### 17.1 신규 데이터 엔티티
+- `ChatMessage`: `{ id, senderId?, senderName, senderRole: 'renter' | 'owner', text, createdAt }`
+- `ContactRequest`에 `messages: ChatMessage[]` 필드 추가. 문의 생성 시 렌터의 최초 메시지(`message` 필드 값)로 스레드가 시딩된다(`senderRole: 'renter'`, 비로그인 생성 시 `senderId` 없음).
+
+### 17.2 신규 API
+1. `GET /contact-requests/:id` — 인증 선택적(optional auth). 인증된 경우 요청자가 해당 문의의 `renterId`이거나, 문의가 가리키는 캐리어의 `ownerId`인 경우에만 조회 허용(그 외 403). 비인증 조회는 기존 `GET /contact-requests` 목록과 동일하게 하위호환을 위해 허용.
+2. `POST /contact-requests/:id/messages` — `{ text }`, `requireAuth` 필수. 전송자가 해당 문의의 렌터 또는 캐리어 소유자가 아니면 403. 성공 시 `ChatMessage`를 스레드에 추가하고 반환.
+
+### 17.3 인가(Authorization) 규칙
+- 채팅 스레드의 읽기/쓰기 권한은 `renterId === currentUser.id` 또는 `carrier.ownerId === currentUser.id` 중 하나를 만족해야 한다.
+- 프런트엔드는 `senderId`가 있으면 `senderId === currentUser.id`로, 없으면(익명 최초 메시지) `senderRole`과 뷰어가 소유자인지 여부를 비교해 "내 메시지 / 상대 메시지" 말풍선 정렬을 판단한다.
+
+### 17.4 프런트엔드 IA 변경
+- 상단 내비게이션: `home`/`rent`/`rental`/`chat`/`settings` 5개 탭(`switchTab`).
+- `대여`/`렌탈` 탭 내부에는 서브탭(`switchSubTab`)이 있다: 대여 = 지도 탐색/찜한 캐리어, 렌탈 = 매물 등록/내 캐리어 관리.
+- `렌탈 > 내 캐리어 관리`는 `GET /providers/me/carriers`를 호출해 로그인한 소유자 본인의 캐리어만 표시한다(과거 버그: 전역 검색 결과를 그대로 표시하던 문제를 이번에 수정).
+- `채팅` 탭은 2단 레이아웃(`.chat-layout`: 대화 목록 + 메시지 패널)이며, `fetchChatList`/`openChatThread`/`renderChatPanel`/`sendChatMessage` 함수가 각각 목록 조회/스레드 열기/패널 렌더링/메시지 전송을 담당한다.
+- `설정` 탭은 프로필 카드(닉네임/전화번호/로그아웃)와 기존 퍼널 로그 디버그 뷰를 포함한다.
+
+### 17.5 테스트 시나리오 (신규 기능)
+#### 통합 테스트 (`apps/api/tests/integration.c2c-platform.test.ts`)
+1. 문의 생성 시 최초 메시지가 스레드에 시딩되는지 검증
+2. 렌터/소유자 간 메시지 교환 성공, 무관한 제3자의 조회(`GET /contact-requests/:id`)·전송(`POST .../messages`) 시도가 403으로 차단되는지 검증
+3. 비로그인 상태의 메시지 전송이 401로 차단되는지 검증
+
+#### E2E 테스트 (수동/브라우저 캔버스로 검증, 자동화 스위트 후속 추가 필요)
+1. 지도에서 1:1 문의 생성 -> `채팅` 탭 목록에 스레드 노출 확인
+2. 스레드 열기 -> 메시지 전송 -> 렌터/소유자 양측 말풍선 정렬 확인
+3. 채팅 패널 상태 변경 버튼(예약 확정/반납 완료)으로 상태 전환 -> `⭐ 후기 남기기` 버튼 노출 확인
+4. `렌탈 > 내 캐리어 관리`가 로그인한 소유자 본인 매물만 표시하는지 확인

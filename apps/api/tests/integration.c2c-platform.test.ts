@@ -136,3 +136,76 @@ describe('integration: owner-scoped carrier registration + contact requests', ()
     expect(received.body.requests.some((r: { carrierId: string }) => r.carrierId === carrierId)).toBe(true);
   });
 });
+
+describe('integration: chat (1:1 direct chat threads on a contact request)', () => {
+  const app = createApp();
+
+  async function signUpUser(phone: string, nickname: string) {
+    const res = await request(app).post('/auth/signup').send({ nickname, phone });
+    return { token: res.body.token as string, user: res.body.user };
+  }
+
+  it('seeds the thread with the renter\'s initial inquiry message', async () => {
+    const renter = await signUpUser('010-7000-0001', '채팅렌터1');
+    const contactRes = await request(app)
+      .post('/contact-requests')
+      .set('Authorization', `Bearer ${renter.token}`)
+      .send({ carrierId: 'c1', message: '안녕하세요, 대여 가능할까요?' });
+    expect(contactRes.status).toBe(201);
+    expect(contactRes.body.contactRequest.messages).toHaveLength(1);
+    expect(contactRes.body.contactRequest.messages[0].text).toBe('안녕하세요, 대여 가능할까요?');
+    expect(contactRes.body.contactRequest.messages[0].senderRole).toBe('renter');
+  });
+
+  it('lets the renter and the carrier owner exchange messages, but blocks unrelated users', async () => {
+    const owner = await signUpUser('010-7000-0002', '채팅오너1');
+    const carrierRes = await request(app)
+      .post('/providers/carriers')
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({ size: 'carry_on', brandModel: '채팅용 캐리어', district: '강남구', dailyPrice: 8000 });
+    const carrierId = carrierRes.body.id;
+
+    const renter = await signUpUser('010-7000-0003', '채팅렌터2');
+    const contactRes = await request(app)
+      .post('/contact-requests')
+      .set('Authorization', `Bearer ${renter.token}`)
+      .send({ carrierId, message: '문의드립니다' });
+    const requestId = contactRes.body.contactRequest.id;
+
+    const ownerReply = await request(app)
+      .post(`/contact-requests/${requestId}/messages`)
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({ text: '네, 가능합니다! 언제 필요하세요?' });
+    expect(ownerReply.status).toBe(201);
+    expect(ownerReply.body.message.senderRole).toBe('owner');
+
+    const renterReply = await request(app)
+      .post(`/contact-requests/${requestId}/messages`)
+      .set('Authorization', `Bearer ${renter.token}`)
+      .send({ text: '이번 주말에 필요해요.' });
+    expect(renterReply.status).toBe(201);
+
+    const thread = await request(app).get(`/contact-requests/${requestId}`).set('Authorization', `Bearer ${owner.token}`);
+    expect(thread.status).toBe(200);
+    expect(thread.body.contactRequest.messages).toHaveLength(3);
+
+    const stranger = await signUpUser('010-7000-0004', '무관한사람');
+    const blocked = await request(app)
+      .post(`/contact-requests/${requestId}/messages`)
+      .set('Authorization', `Bearer ${stranger.token}`)
+      .send({ text: '끼어들기' });
+    expect(blocked.status).toBe(403);
+
+    const blockedRead = await request(app)
+      .get(`/contact-requests/${requestId}`)
+      .set('Authorization', `Bearer ${stranger.token}`);
+    expect(blockedRead.status).toBe(403);
+  });
+
+  it('rejects sending a message without authentication', async () => {
+    const contactRes = await request(app).post('/contact-requests').send({ carrierId: 'c1', message: '문의' });
+    const requestId = contactRes.body.contactRequest.id;
+    const res = await request(app).post(`/contact-requests/${requestId}/messages`).send({ text: '안녕하세요' });
+    expect(res.status).toBe(401);
+  });
+});

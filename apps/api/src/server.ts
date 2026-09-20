@@ -52,6 +52,15 @@ type CarrierItem = {
   originalPrice: number;
 };
 
+type ChatMessage = {
+  id: string;
+  senderId?: string;
+  senderName: string;
+  senderRole: 'renter' | 'owner';
+  text: string;
+  createdAt: string;
+};
+
 type ContactRequest = {
   id: string;
   carrierId: string;
@@ -63,6 +72,7 @@ type ContactRequest = {
   message: string;
   status: 'pending' | 'accepted' | 'completed' | 'cancelled';
   createdAt: string;
+  messages: ChatMessage[];
 };
 
 type User = {
@@ -365,6 +375,7 @@ export function createApp() {
     if (!carrier) return res.status(404).json({ message: 'carrier not found' });
 
     const id = `req_${contactRequests.length + 1}`;
+    const senderName = maybeUser?.nickname || parsed.renterName || '대여자';
     const newReq: ContactRequest = {
       id,
       carrierId: parsed.carrierId,
@@ -375,7 +386,17 @@ export function createApp() {
       endDate: parsed.endDate || '2026-08-12',
       message: parsed.message,
       status: 'pending',
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      messages: [
+        {
+          id: `msg_${id}_1`,
+          senderId: maybeUser?.id,
+          senderName,
+          senderRole: 'renter',
+          text: parsed.message,
+          createdAt: new Date().toISOString()
+        }
+      ]
     };
     contactRequests.push(newReq);
     res.status(201).json({
@@ -409,6 +430,46 @@ export function createApp() {
     const parsed = schema.parse(req.body);
     reqItem.status = parsed.status;
     res.json({ ok: true, contactRequest: reqItem });
+  });
+
+  app.get('/contact-requests/:id', (req: Request, res: Response) => {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const reqItem = contactRequests.find((r) => r.id === id);
+    if (!reqItem) return res.status(404).json({ message: 'contact request not found' });
+
+    const maybeUser = authenticate(req);
+    if (maybeUser) {
+      const carrier = carriers.find((c) => c.id === reqItem.carrierId);
+      const isOwner = carrier?.ownerId === maybeUser.id;
+      const isRenter = reqItem.renterId === maybeUser.id;
+      if (!isOwner && !isRenter) return res.status(403).json({ message: '접근 권한이 없습니다.' });
+    }
+    res.json({ contactRequest: reqItem });
+  });
+
+  app.post('/contact-requests/:id/messages', requireAuth, (req: Request, res: Response) => {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const reqItem = contactRequests.find((r) => r.id === id);
+    if (!reqItem) return res.status(404).json({ message: 'contact request not found' });
+
+    const user = (req as Request & { user: User }).user;
+    const carrier = carriers.find((c) => c.id === reqItem.carrierId);
+    const isOwner = carrier?.ownerId === user.id;
+    const isRenter = reqItem.renterId === user.id;
+    if (!isOwner && !isRenter) return res.status(403).json({ message: '이 채팅에 참여할 수 없습니다.' });
+
+    const schema = z.object({ text: z.string().min(1) });
+    const parsed = schema.parse(req.body);
+    const chatMessage: ChatMessage = {
+      id: `msg_${id}_${reqItem.messages.length + 1}`,
+      senderId: user.id,
+      senderName: user.nickname,
+      senderRole: isOwner ? 'owner' : 'renter',
+      text: parsed.text,
+      createdAt: new Date().toISOString()
+    };
+    reqItem.messages.push(chatMessage);
+    res.status(201).json({ ok: true, message: chatMessage, contactRequest: reqItem });
   });
 
   app.post('/bookings', (req: Request, res: Response) => {

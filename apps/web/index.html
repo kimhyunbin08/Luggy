@@ -470,21 +470,201 @@
         padding-top: 6px;
         margin-top: 6px;
       }
+
+      /* Sub-tabs (used inside 대여 / 렌탈 top-level tabs) */
+      .sub-tabs {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 18px;
+        border-bottom: 1px solid var(--border-color);
+      }
+      .sub-tab-btn {
+        border: none;
+        background: transparent;
+        padding: 10px 4px;
+        margin-right: 16px;
+        font-size: 14px;
+        font-weight: 700;
+        color: var(--text-secondary);
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+      }
+      .sub-tab-btn.active {
+        color: var(--accent-orange);
+        border-bottom-color: var(--accent-orange);
+      }
+      .sub-tab-content { display: none; }
+      .sub-tab-content.active { display: block; }
+
+      /* Home dashboard */
+      .home-hero {
+        background: linear-gradient(135deg, var(--accent-orange) 0%, #ff9248 100%);
+        border-radius: var(--radius-lg);
+        padding: 32px;
+        color: #fff;
+        margin-bottom: 20px;
+        box-shadow: var(--shadow-card);
+      }
+      .home-hero h1 { font-size: 26px; font-weight: 800; margin-bottom: 8px; }
+      .home-hero p { font-size: 14px; opacity: 0.92; margin-bottom: 18px; }
+      .home-hero-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+      .btn-hero {
+        border: none;
+        background: rgba(255,255,255,0.18);
+        color: #fff;
+        padding: 10px 18px;
+        font-size: 13px;
+        font-weight: 700;
+        border-radius: 20px;
+        cursor: pointer;
+        backdrop-filter: blur(6px);
+      }
+      .btn-hero.solid { background: #ffffff; color: var(--accent-orange); }
+      .home-stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 14px;
+        margin-bottom: 24px;
+      }
+      .home-stat-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        padding: 16px;
+        text-align: center;
+        box-shadow: var(--shadow-subtle);
+      }
+      .home-stat-card .stat-value { font-size: 24px; font-weight: 800; color: var(--accent-orange); }
+      .home-stat-card .stat-label { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+      .home-section-title { font-size: 18px; font-weight: 700; margin: 24px 0 14px; }
+
+      /* Chat */
+      .chat-layout {
+        display: grid;
+        grid-template-columns: 320px 1fr;
+        gap: 16px;
+        min-height: 480px;
+      }
+      @media (max-width: 760px) {
+        .chat-layout { grid-template-columns: 1fr; }
+      }
+      .chat-list {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        overflow-y: auto;
+        max-height: 620px;
+      }
+      .chat-list-item {
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--border-color);
+        cursor: pointer;
+        transition: background 0.15s ease;
+      }
+      .chat-list-item:hover { background: #fafafa; }
+      .chat-list-item.active { background: rgba(255, 111, 15, 0.08); }
+      .chat-list-item .chat-item-title { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+      .chat-list-item .chat-item-preview { font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .chat-panel {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        display: flex;
+        flex-direction: column;
+        max-height: 620px;
+      }
+      .chat-panel-header {
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--border-color);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .chat-messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .chat-bubble {
+        max-width: 72%;
+        padding: 10px 14px;
+        border-radius: 16px;
+        font-size: 13px;
+        line-height: 1.4;
+      }
+      .chat-bubble.mine { align-self: flex-end; background: var(--accent-orange); color: #fff; border-bottom-right-radius: 4px; }
+      .chat-bubble.theirs { align-self: flex-start; background: #f0f0f2; color: var(--text-primary); border-bottom-left-radius: 4px; }
+      .chat-bubble .chat-bubble-meta { font-size: 10px; opacity: 0.75; margin-top: 4px; }
+      .chat-input-row {
+        display: flex;
+        gap: 8px;
+        padding: 12px 14px;
+        border-top: 1px solid var(--border-color);
+      }
+      .chat-input-row input {
+        flex: 1;
+        border: 1px solid var(--border-color);
+        border-radius: 20px;
+        padding: 10px 16px;
+        font-size: 13px;
+      }
+      .chat-empty-state {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        color: var(--text-secondary);
+        font-size: 13px;
+        text-align: center;
+        padding: 20px;
+      }
+
+      /* Settings */
+      .settings-profile-card {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 20px;
+        background: #fafafa;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-color);
+        margin-bottom: 20px;
+      }
+      .settings-avatar {
+        width: 52px; height: 52px; border-radius: 50%;
+        background: var(--accent-orange); color: #fff;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 20px; font-weight: 800; flex-shrink: 0;
+      }
+      .settings-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 14px 0;
+        border-bottom: 1px solid var(--border-color);
+        font-size: 14px;
+      }
+      .settings-row:last-child { border-bottom: none; }
     </style>
   </head>
   <body>
     <header>
       <div class="nav-container">
         <div class="logo-group">
-          <a href="#" class="logo" onclick="switchTab('renter')">Luggy</a>
+          <a href="#" class="logo" onclick="switchTab('home')">Luggy</a>
           <span class="badge-mvp">📍 당근마켓형 C2C 지도 대여 MVP</span>
         </div>
         <nav class="nav-tabs">
-          <button class="nav-btn active" id="tab-renter" onclick="switchTab('renter')">🗺️ 지도 탐색 (Renter)</button>
-          <button class="nav-btn" id="tab-favorites" onclick="switchTab('favorites')">❤️ 찜한 캐리어</button>
-          <button class="nav-btn" id="tab-provider" onclick="switchTab('provider')">➕ 내 캐리어 대여 등록</button>
-          <button class="nav-btn" id="tab-requests" onclick="switchTab('requests')">📋 내 대여 문의 내역</button>
-          <button class="nav-btn" id="tab-analytics" onclick="switchTab('analytics')">📊 퍼널 로그</button>
+          <button class="nav-btn active" id="tab-home" onclick="switchTab('home')">🏠 홈</button>
+          <button class="nav-btn" id="tab-rent" onclick="switchTab('rent')">🧳 대여</button>
+          <button class="nav-btn" id="tab-rental" onclick="switchTab('rental')">🏷️ 렌탈</button>
+          <button class="nav-btn" id="tab-chat" onclick="switchTab('chat')">💬 채팅</button>
+          <button class="nav-btn" id="tab-settings" onclick="switchTab('settings')">⚙️ 설정</button>
         </nav>
         <div class="auth-area" id="auth-area">
           <button class="btn-login" id="btn-login-open" onclick="openLoginModal()">👤 로그인 / 가입</button>
@@ -493,8 +673,48 @@
     </header>
 
     <main>
-      <!-- 1. RENTER TAB (Map Search & Carrier Grid) -->
-      <section id="content-renter" class="tab-content active">
+      <!-- 0. HOME TAB (Dashboard / Landing) -->
+      <section id="content-home" class="tab-content active">
+        <div class="home-hero">
+          <h1>이웃과 함께, 캐리어를 가볍게 빌려보세요</h1>
+          <p>지도에서 우리 동네 캐리어를 찾고, 소유자와 1:1로 직접 연락해서 거래하세요. PG 결제 수수료 없이 직거래로 진행됩니다.</p>
+          <div class="home-hero-actions">
+            <button class="btn-hero solid" onclick="switchTab('rent')">🗺️ 캐리어 빌리러 가기</button>
+            <button class="btn-hero" onclick="switchTab('rental')">🏷️ 내 캐리어 등록하기</button>
+          </div>
+        </div>
+
+        <div class="home-stats-grid">
+          <div class="home-stat-card">
+            <div class="stat-value" id="home-stat-carriers">-</div>
+            <div class="stat-label">우리 동네 등록 매물</div>
+          </div>
+          <div class="home-stat-card">
+            <div class="stat-value" id="home-stat-requests">-</div>
+            <div class="stat-label">내 대여/거래 문의</div>
+          </div>
+          <div class="home-stat-card">
+            <div class="stat-value" id="home-stat-favorites">-</div>
+            <div class="stat-label">찜한 캐리어</div>
+          </div>
+          <div class="home-stat-card">
+            <div class="stat-value" id="home-stat-mycarriers">-</div>
+            <div class="stat-label">내가 등록한 캐리어</div>
+          </div>
+        </div>
+
+        <h2 class="home-section-title">📍 지금 인기있는 우리 동네 매물</h2>
+        <div class="card-grid" id="home-highlight-grid"></div>
+      </section>
+
+      <!-- 1. RENT TAB (Renter: Map Search + Favorites) -->
+      <section id="content-rent" class="tab-content">
+        <div class="sub-tabs">
+          <button class="sub-tab-btn active" id="subtab-rent-explore" onclick="switchSubTab('rent', 'explore')">🗺️ 지도 탐색</button>
+          <button class="sub-tab-btn" id="subtab-rent-favorites" onclick="switchSubTab('rent', 'favorites')">❤️ 찜한 캐리어</button>
+        </div>
+
+        <div id="subcontent-rent-explore" class="sub-tab-content active">
         <div class="search-card">
           <div class="search-title-row">
             <div>
@@ -552,21 +772,27 @@
         <div class="card-grid" id="carrier-card-grid">
           <!-- Dynamic Carrier Cards -->
         </div>
-      </section>
+        </div>
 
-      <!-- FAVORITES TAB (찜한 캐리어) -->
-      <section id="content-favorites" class="tab-content">
-        <div class="search-card">
-          <h2 class="search-title">❤️ 내가 찜한 캐리어</h2>
-          <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
-            로그인 후 마음에 드는 이웃 캐리어를 찜해두면 여기서 모아볼 수 있습니다.
-          </p>
-          <div class="card-grid" id="favorite-card-grid"></div>
+        <div id="subcontent-rent-favorites" class="sub-tab-content">
+          <div class="search-card">
+            <h2 class="search-title">❤️ 내가 찜한 캐리어</h2>
+            <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
+              로그인 후 마음에 드는 이웃 캐리어를 찜해두면 여기서 모아볼 수 있습니다.
+            </p>
+            <div class="card-grid" id="favorite-card-grid"></div>
+          </div>
         </div>
       </section>
 
-      <!-- 2. PROVIDER TAB (Register Carrier) -->
-      <section id="content-provider" class="tab-content">
+      <!-- 2. RENTAL TAB (Owner: Register + Manage My Carriers) -->
+      <section id="content-rental" class="tab-content">
+        <div class="sub-tabs">
+          <button class="sub-tab-btn active" id="subtab-rental-register" onclick="switchSubTab('rental', 'register')">➕ 매물 등록</button>
+          <button class="sub-tab-btn" id="subtab-rental-manage" onclick="switchSubTab('rental', 'manage')">📦 내 캐리어 관리</button>
+        </div>
+
+        <div id="subcontent-rental-register" class="sub-tab-content active">
         <div class="search-card" style="max-width: 640px; margin: 0 auto 24px;">
           <h2 class="search-title">내 캐리어 직접 등록하기 (소유자)</h2>
           <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">
@@ -616,32 +842,65 @@
             <button class="btn-orange" onclick="submitNewCarrier()">📸 내 동네 매물로 등록하기</button>
           </div>
         </div>
+        </div>
+
+        <div id="subcontent-rental-manage" class="sub-tab-content">
+          <div class="search-card" style="max-width: 640px; margin: 0 auto;">
+            <h2 class="search-title" style="font-size: 18px;">내가 등록한 캐리어 관리</h2>
+            <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
+              내가 등록한 매물의 노출 상태를 확인하고, 받은 대여 문의는 💬 채팅 탭에서 응대할 수 있습니다.
+            </p>
+            <div id="provider-carrier-list" style="display: flex; flex-direction: column; gap: 12px; margin-top: 12px;">
+              <!-- Registered Carriers with Opt-In toggle -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. CHAT TAB (1:1 direct chat threads) -->
+      <section id="content-chat" class="tab-content">
+        <div class="search-card" style="margin-bottom: 16px;">
+          <h2 class="search-title" style="font-size: 20px;">💬 1:1 대여 채팅</h2>
+          <p style="font-size: 13px; color: var(--text-secondary);">
+            Renter / Owner 간 대여 문의 채팅 목록입니다. 대화를 선택해 메시지를 주고받고, 예약 상태를 관리하세요.
+          </p>
+        </div>
+        <div class="chat-layout">
+          <div class="chat-list" id="chat-list">
+            <!-- Rendered conversation list -->
+          </div>
+          <div class="chat-panel" id="chat-panel">
+            <div class="chat-empty-state">왼쪽에서 대화를 선택해주세요.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 4. SETTINGS TAB -->
+      <section id="content-settings" class="tab-content">
+        <div class="search-card" style="max-width: 640px; margin: 0 auto 20px;">
+          <h2 class="search-title" style="font-size: 20px;">⚙️ 설정</h2>
+          <div class="settings-profile-card" id="settings-profile-card">
+            <div class="settings-avatar" id="settings-avatar">?</div>
+            <div>
+              <div style="font-weight: 700; font-size: 16px;" id="settings-nickname">로그인이 필요합니다</div>
+              <div style="font-size: 13px; color: var(--text-secondary);" id="settings-phone"></div>
+            </div>
+          </div>
+          <div id="settings-actions">
+            <div class="settings-row">
+              <span>로그인 / 회원가입</span>
+              <button class="btn-orange" style="font-size: 12px; padding: 6px 14px;" onclick="openLoginModal()" id="settings-login-btn">👤 로그인 / 가입</button>
+            </div>
+            <div class="settings-row" id="settings-logout-row" style="display: none;">
+              <span>로그아웃</span>
+              <button class="btn-orange" style="font-size: 12px; padding: 6px 14px; background: #e5e5ea; color: var(--text-primary);" onclick="logout()">로그아웃</button>
+            </div>
+          </div>
+        </div>
 
         <div class="search-card" style="max-width: 640px; margin: 0 auto;">
-          <h2 class="search-title" style="font-size: 18px;">내 등록 캐리어 목록</h2>
-          <div id="provider-carrier-list" style="display: flex; flex-direction: column; gap: 12px; margin-top: 12px;">
-            <!-- Registered Carriers with Opt-In toggle -->
-          </div>
-        </div>
-      </section>
-
-      <!-- 3. MY CONTACT REQUESTS TAB -->
-      <section id="content-requests" class="tab-content">
-        <div class="search-card">
-          <h2 class="search-title">내 대여 문의 및 직거래 현황</h2>
-          <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
-            Renter / Owner 간 1:1 대여 문의 내역 및 대여 진행 상태입니다.
-          </p>
-          <div id="contact-requests-list" style="display: flex; flex-direction: column; gap: 14px;">
-            <!-- Rendered Contact Requests -->
-          </div>
-        </div>
-      </section>
-
-      <!-- 4. ANALYTICS TAB -->
-      <section id="content-analytics" class="tab-content">
-        <div class="search-card">
-          <h2 class="search-title">C2C 퍼널 수집 이벤트 로그</h2>
+          <h2 class="search-title" style="font-size: 16px;">📊 퍼널 로그 (디버그)</h2>
+          <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 10px;">서비스 사용 중 발생하는 주요 이벤트를 실시간으로 확인합니다.</p>
           <div class="event-log-container" id="event-log-box">
             [System] Map C2C Funnel Logger Initialized...
           </div>
@@ -795,6 +1054,29 @@
           `;
         } else {
           el.innerHTML = `<button class="btn-login" id="btn-login-open" onclick="openLoginModal()">👤 로그인 / 가입</button>`;
+        }
+        renderSettingsProfile();
+      }
+
+      function renderSettingsProfile() {
+        const avatar = document.getElementById('settings-avatar');
+        const nicknameEl = document.getElementById('settings-nickname');
+        const phoneEl = document.getElementById('settings-phone');
+        const loginRow = document.getElementById('settings-login-btn')?.closest('.settings-row');
+        const logoutRow = document.getElementById('settings-logout-row');
+        if (!avatar || !nicknameEl) return;
+        if (currentUser) {
+          avatar.innerText = currentUser.nickname.slice(0, 1);
+          nicknameEl.innerText = currentUser.nickname;
+          phoneEl.innerText = currentUser.phone;
+          if (loginRow) loginRow.style.display = 'none';
+          if (logoutRow) logoutRow.style.display = 'flex';
+        } else {
+          avatar.innerText = '?';
+          nicknameEl.innerText = '로그인이 필요합니다';
+          phoneEl.innerText = '';
+          if (loginRow) loginRow.style.display = 'flex';
+          if (logoutRow) logoutRow.style.display = 'none';
         }
       }
 
@@ -951,17 +1233,73 @@
         document.getElementById(`tab-${tabName}`).classList.add('active');
         document.getElementById(`content-${tabName}`).classList.add('active');
 
-        if (tabName === 'renter') {
+        if (tabName === 'home') {
+          renderHomeDashboard();
+        } else if (tabName === 'rent') {
           setTimeout(() => {
             if (map && !isKakaoMap) map.invalidateSize();
             executeSearch();
           }, 100);
-        } else if (tabName === 'requests') {
-          fetchContactRequests();
-        } else if (tabName === 'provider') {
-          renderProviderCarrierList();
-        } else if (tabName === 'favorites') {
           fetchAndRenderFavorites();
+        } else if (tabName === 'rental') {
+          renderProviderCarrierList();
+        } else if (tabName === 'chat') {
+          fetchChatList();
+        } else if (tabName === 'settings') {
+          renderSettingsProfile();
+        }
+      }
+
+      function switchSubTab(parentTab, subTabName) {
+        document.querySelectorAll(`#content-${parentTab} .sub-tab-btn`).forEach(btn => btn.classList.remove('active'));
+        document.querySelectorAll(`#content-${parentTab} .sub-tab-content`).forEach(content => content.classList.remove('active'));
+
+        document.getElementById(`subtab-${parentTab}-${subTabName}`).classList.add('active');
+        document.getElementById(`subcontent-${parentTab}-${subTabName}`).classList.add('active');
+
+        if (parentTab === 'rent' && subTabName === 'explore') {
+          setTimeout(() => {
+            if (map && !isKakaoMap) map.invalidateSize();
+          }, 100);
+        } else if (parentTab === 'rent' && subTabName === 'favorites') {
+          fetchAndRenderFavorites();
+        } else if (parentTab === 'rental' && subTabName === 'manage') {
+          renderProviderCarrierList();
+        }
+      }
+
+      async function renderHomeDashboard() {
+        try {
+          const res = await fetch(`${API_BASE}/renters/search`);
+          const data = await res.json();
+          const items = (data.items || []).slice(0, 4);
+          document.getElementById('home-stat-carriers').innerText = data.items ? data.items.length : '-';
+          renderCardsInto(document.getElementById('home-highlight-grid'), items);
+        } catch (err) {
+          document.getElementById('home-stat-carriers').innerText = '-';
+        }
+
+        if (!authToken) {
+          document.getElementById('home-stat-requests').innerText = '-';
+          document.getElementById('home-stat-favorites').innerText = '-';
+          document.getElementById('home-stat-mycarriers').innerText = '-';
+          return;
+        }
+
+        try {
+          const [reqRes, favRes, carRes] = await Promise.all([
+            fetch(`${API_BASE}/contact-requests`, { headers: authHeaders() }),
+            fetch(`${API_BASE}/favorites`, { headers: authHeaders() }),
+            fetch(`${API_BASE}/providers/me/carriers`, { headers: authHeaders() })
+          ]);
+          const reqData = await reqRes.json();
+          const favData = await favRes.json();
+          const carData = await carRes.json();
+          document.getElementById('home-stat-requests').innerText = (reqData.requests || []).length;
+          document.getElementById('home-stat-favorites').innerText = (favData.items || []).length;
+          document.getElementById('home-stat-mycarriers').innerText = (carData.items || []).length;
+        } catch (err) {
+          // Silently ignore; dashboard stats are best-effort.
         }
       }
 
@@ -1240,47 +1578,135 @@
 
       function closeReleaseModal() {
         document.getElementById('owner-release-modal').style.display = 'none';
-        switchTab('requests');
+        switchTab('chat');
       }
 
-      async function fetchContactRequests() {
-        const listEl = document.getElementById('contact-requests-list');
+      let chatRequests = [];
+      let activeChatId = null;
+
+      async function fetchChatList() {
+        const listEl = document.getElementById('chat-list');
+        if (!authToken) {
+          listEl.innerHTML = `<div class="chat-empty-state">로그인 후 대여 문의 채팅을 확인할 수 있습니다.<br/><button class="btn-orange" style="margin-top:10px; font-size:12px; padding:6px 14px;" onclick="openLoginModal()">로그인 / 가입</button></div>`;
+          document.getElementById('chat-panel').innerHTML = `<div class="chat-empty-state">로그인이 필요합니다.</div>`;
+          return;
+        }
         try {
           const res = await fetch(`${API_BASE}/contact-requests`, { headers: authHeaders() });
           const data = await res.json();
-          const requests = data.requests || [];
+          chatRequests = (data.requests || []).slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-          if (requests.length === 0) {
-            listEl.innerHTML = `<div style="text-align: center; padding: 30px; color: var(--text-secondary);">아직 대여 문의 내역이 없습니다. 지도에서 원하는 캐리어를 찾아 문의해보세요!</div>`;
+          if (chatRequests.length === 0) {
+            listEl.innerHTML = `<div class="chat-empty-state">아직 대여 문의 채팅이 없습니다.<br/>지도에서 원하는 캐리어를 찾아 문의해보세요!</div>`;
             return;
           }
 
-          listEl.innerHTML = requests.map(r => `
-            <div style="background: #fafafa; border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-              <div>
-                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
-                  <strong style="font-size: 15px;">요청 번호: ${r.id}</strong>
-                  <span class="badge-status ${r.status}">
-                    ${r.status === 'pending' ? '문의중' : r.status === 'accepted' ? '예약 확정' : r.status === 'completed' ? '대여 완료' : '취소됨'}
-                  </span>
-                </div>
-                <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 4px;">
-                  📅 기간: ${r.startDate} ~ ${r.endDate} | 대여자: ${r.renterName} (${r.renterPhone})
-                </div>
-                <div style="font-size: 13px; color: var(--text-primary);">
-                  💬 메시지: ${r.message}
-                </div>
+          listEl.innerHTML = chatRequests.map(r => {
+            const carrier = currentCarriers.find(c => c.id === r.carrierId);
+            const title = carrier ? carrier.brandModel : `캐리어 #${r.carrierId}`;
+            const lastMsg = r.messages && r.messages.length ? r.messages[r.messages.length - 1].text : r.message;
+            return `
+              <div class="chat-list-item${r.id === activeChatId ? ' active' : ''}" onclick="openChatThread('${r.id}')">
+                <div class="chat-item-title">${title} <span class="badge-status ${r.status}" style="margin-left:6px; font-size:10px;">${statusLabel(r.status)}</span></div>
+                <div class="chat-item-preview">${lastMsg}</div>
               </div>
-              <div style="display: flex; gap: 6px;">
-                ${r.status === 'pending' ? `<button class="btn-orange" style="font-size: 12px; padding: 6px 12px;" onclick="updateRequestStatus('${r.id}', 'accepted')">예약 확정하기</button>` : ''}
-                ${r.status === 'accepted' ? `<button class="btn-orange" style="font-size: 12px; padding: 6px 12px; background: var(--accent-green);" onclick="updateRequestStatus('${r.id}', 'completed')">반납 완료 처리</button>` : ''}
-                ${r.status === 'completed' ? `<button class="btn-orange" style="font-size: 12px; padding: 6px 12px; background: var(--accent-navy);" onclick="submitReview('${r.carrierId}', '${r.id}')">⭐ 후기 남기기</button>` : ''}
-                ${r.status !== 'cancelled' && r.status !== 'completed' ? `<button class="btn-orange" style="font-size: 12px; padding: 6px 12px; background: #e5e5ea; color: var(--text-primary);" onclick="updateRequestStatus('${r.id}', 'cancelled')">취소</button>` : ''}
-              </div>
-            </div>
-          `).join('');
+            `;
+          }).join('');
+
+          if (activeChatId && chatRequests.some(r => r.id === activeChatId)) {
+            renderChatPanel(activeChatId);
+          }
         } catch (err) {
-          listEl.innerHTML = `<div style="text-align: center; padding: 30px; color: var(--text-secondary);">대여 문의 목록을 불러오는 중 오류가 발생했습니다.</div>`;
+          listEl.innerHTML = `<div class="chat-empty-state">채팅 목록을 불러오는 중 오류가 발생했습니다.</div>`;
+        }
+      }
+
+      function statusLabel(status) {
+        return status === 'pending' ? '문의중' : status === 'accepted' ? '예약 확정' : status === 'completed' ? '대여 완료' : '취소됨';
+      }
+
+      async function openChatThread(id) {
+        activeChatId = id;
+        document.querySelectorAll('.chat-list-item').forEach(el => el.classList.remove('active'));
+        await fetchChatList();
+        await renderChatPanel(id);
+      }
+
+      async function renderChatPanel(id) {
+        const panel = document.getElementById('chat-panel');
+        try {
+          const res = await fetch(`${API_BASE}/contact-requests/${id}`, { headers: authHeaders() });
+          const data = await res.json();
+          if (!res.ok) {
+            panel.innerHTML = `<div class="chat-empty-state">${data.message || '채팅을 불러올 수 없습니다.'}</div>`;
+            return;
+          }
+          const r = data.contactRequest;
+          const carrier = currentCarriers.find(c => c.id === r.carrierId);
+          const title = carrier ? carrier.brandModel : `캐리어 #${r.carrierId}`;
+          const isOwner = carrier && carrier.ownerId === currentUser?.id;
+
+          const actionButtons = [
+            r.status === 'pending' ? `<button class="btn-orange" style="font-size: 11px; padding: 5px 10px;" onclick="updateRequestStatus('${r.id}', 'accepted')">예약 확정</button>` : '',
+            r.status === 'accepted' ? `<button class="btn-orange" style="font-size: 11px; padding: 5px 10px; background: var(--accent-green);" onclick="updateRequestStatus('${r.id}', 'completed')">반납 완료 처리</button>` : '',
+            r.status === 'completed' ? `<button class="btn-orange" style="font-size: 11px; padding: 5px 10px; background: var(--accent-navy);" onclick="submitReview('${r.carrierId}', '${r.id}')">⭐ 후기 남기기</button>` : '',
+            r.status !== 'cancelled' && r.status !== 'completed' ? `<button class="btn-orange" style="font-size: 11px; padding: 5px 10px; background: #e5e5ea; color: var(--text-primary);" onclick="updateRequestStatus('${r.id}', 'cancelled')">취소</button>` : ''
+          ].join('');
+
+          const bubbles = (r.messages || []).map(m => {
+            const mine = m.senderId ? m.senderId === currentUser?.id : m.senderRole === (isOwner ? 'owner' : 'renter');
+            const time = new Date(m.createdAt).toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+            return `
+              <div class="chat-bubble ${mine ? 'mine' : 'theirs'}">
+                ${m.text}
+                <div class="chat-bubble-meta">${m.senderName} · ${time}</div>
+              </div>
+            `;
+          }).join('');
+
+          panel.innerHTML = `
+            <div class="chat-panel-header">
+              <div>
+                <strong>${title}</strong>
+                <span class="badge-status ${r.status}" style="margin-left: 8px;">${statusLabel(r.status)}</span>
+                <div style="font-size:12px; color: var(--text-secondary); margin-top:4px;">📅 ${r.startDate} ~ ${r.endDate}</div>
+              </div>
+              <div style="display:flex; gap:6px; flex-wrap:wrap;">${actionButtons}</div>
+            </div>
+            <div class="chat-messages" id="chat-messages-box">${bubbles}</div>
+            <div class="chat-input-row">
+              <input type="text" id="chat-message-input" placeholder="메시지를 입력하세요..." onkeydown="if(event.key==='Enter') sendChatMessage('${r.id}')" />
+              <button class="btn-orange" style="font-size:12px; padding: 8px 16px;" onclick="sendChatMessage('${r.id}')">전송</button>
+            </div>
+          `;
+          const box = document.getElementById('chat-messages-box');
+          if (box) box.scrollTop = box.scrollHeight;
+        } catch (err) {
+          panel.innerHTML = `<div class="chat-empty-state">채팅을 불러오는 중 오류가 발생했습니다.</div>`;
+        }
+      }
+
+      async function sendChatMessage(id) {
+        const input = document.getElementById('chat-message-input');
+        const text = input.value.trim();
+        if (!text) return;
+        input.value = '';
+        try {
+          const res = await fetch(`${API_BASE}/contact-requests/${id}/messages`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders() },
+            body: JSON.stringify({ text })
+          });
+          if (!res.ok) {
+            const data = await res.json();
+            alert(data.message || '메시지 전송에 실패했습니다.');
+            return;
+          }
+          logFunnelEvent('chat_message_sent', { requestId: id });
+          await fetchChatList();
+          await renderChatPanel(id);
+        } catch (err) {
+          alert('네트워크 오류로 메시지 전송에 실패했습니다.');
         }
       }
 
@@ -1320,7 +1746,8 @@
             body: JSON.stringify({ status: newStatus })
           });
           logFunnelEvent('contact_request_status_update', { id, status: newStatus });
-          fetchContactRequests();
+          await fetchChatList();
+          if (activeChatId) await renderChatPanel(activeChatId);
         } catch (err) {
           alert('상태 변경에 실패했습니다.');
         }
@@ -1359,31 +1786,47 @@
           const data = await res.json();
 
           logFunnelEvent('carrier_registered', { carrierId: data.id });
-          alert(`🎉 [${district}] ${brandModel} 캐리어가 정상 등록되었습니다!\n지도 탐색에 즉시 반영되었습니다.`);
-          switchTab('renter');
+          alert(`🎉 [${district}] ${brandModel} 캐리어가 정상 등록되었습니다!\n내 캐리어 관리 탭에서 확인할 수 있습니다.`);
+          switchSubTab('rental', 'manage');
         } catch (err) {
-          alert('캐리어 등록 완료! 지도 탐색 탭으로 이동합니다.');
-          switchTab('renter');
+          alert('캐리어 등록 완료! 내 캐리어 관리 탭으로 이동합니다.');
+          switchSubTab('rental', 'manage');
         }
       }
 
-      function renderProviderCarrierList() {
+      async function renderProviderCarrierList() {
         const listEl = document.getElementById('provider-carrier-list');
-        listEl.innerHTML = currentCarriers.map(c => `
-          <div style="padding: 12px; background: #fafafa; border: 1px solid var(--border-color); border-radius: var(--radius-md); display: flex; justify-content: space-between; align-items: center;">
-            <div>
-              <strong>${c.brandModel}</strong> (${c.district})
-              <div style="font-size: 12px; color: var(--text-secondary);">${c.dailyPrice.toLocaleString()}원/일 | 소유자: ${c.ownerName || '나'}</div>
+        if (!authToken) {
+          listEl.innerHTML = `<div style="text-align:center; padding: 20px; color: var(--text-secondary);">로그인 후 내가 등록한 캐리어를 확인할 수 있습니다.</div>`;
+          return;
+        }
+        try {
+          const res = await fetch(`${API_BASE}/providers/me/carriers`, { headers: authHeaders() });
+          const data = await res.json();
+          const items = data.items || [];
+          if (items.length === 0) {
+            listEl.innerHTML = `<div style="text-align:center; padding: 20px; color: var(--text-secondary);">아직 등록한 캐리어가 없습니다. 위에서 매물을 등록해보세요!</div>`;
+            return;
+          }
+          listEl.innerHTML = items.map(c => `
+            <div style="padding: 12px; background: #fafafa; border: 1px solid var(--border-color); border-radius: var(--radius-md); display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <strong>${c.brandModel}</strong> (${c.district})
+                <div style="font-size: 12px; color: var(--text-secondary);">${c.dailyPrice.toLocaleString()}원/일 | ★ ${c.rating.toFixed(1)} (${c.reviews})</div>
+              </div>
+              <span class="badge-status accepted">🟢 노출중 (Opt-In)</span>
             </div>
-            <span class="badge-status accepted">🟢 노출중 (Opt-In)</span>
-          </div>
-        `).join('');
+          `).join('');
+        } catch (err) {
+          listEl.innerHTML = `<div style="text-align:center; padding: 20px; color: var(--text-secondary);">등록한 캐리어를 불러오는 중 오류가 발생했습니다.</div>`;
+        }
       }
 
       // Initialize default search on load
       window.addEventListener('DOMContentLoaded', () => {
         renderAuthArea();
         fetchFavoriteIds().then(() => executeSearch());
+        renderHomeDashboard();
       });
     </script>
   </body>
