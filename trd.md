@@ -407,3 +407,46 @@ export function isValidCarrierPurchaseYear(year: number): boolean {
 1. 가입 위저드 3단계에서 여행 일수에 음수 입력 시 다음 단계로 진행되지 않는지 확인
 2. 문의 모달에서 반납일을 시작일보다 이르게 설정 시 제출이 차단되고 안내 메시지가 뜨는지 확인
 3. 매물 등록 폼에서 대여료를 0 이하로 입력 시 제출이 차단되는지 확인
+
+## 21. "빠른 대여" 추천 매칭 API/구현 (신규 기능)
+`apps/api/src/domain/recommendation.ts`, `apps/api/src/server.ts`, `apps/web/index.html`에 구현되어 있다.
+
+### 21.1 추천 스코어링 (`apps/api/src/domain/recommendation.ts`)
+```ts
+export function scoreCarrierForQuickRental(candidate, context): { score: number; reasons: string[] }
+export function rankQuickRentalCandidates(candidates, context, limit = 3)
+```
+- 순수 함수(pure function)로 구현하여 단위 테스트가 쉽도록 분리했다. 서버의 `CarrierItem`과는 별개의 구조적 타입(`RecommendationCandidate`)을 사용해 순환 참조를 피한다.
+- 점수 규칙: 동네 완전 일치(+50) > 같은 구(첫 토큰 일치, +30) > 사이즈 일치(+20) > 평점 4.7 이상(+15)/4.0 이상(+8) > 후기 5개 이상(+5). 아무 조건도 해당하지 않으면 기본 사유("지금 바로 대여 가능한 이웃이에요")를 반환한다.
+- `rankQuickRentalCandidates`는 `available && optIn`인 후보만 필터링 후 점수 내림차순 정렬하여 상위 `limit`(기본 3)개를 반환한다.
+
+### 21.2 `POST /renters/quick-rental` (`apps/api/src/server.ts`)
+- 요청 바디: `{ purpose?: 'business'|'travel'|'etc', durationDays?: number, district?: string, headcount?: number, size?: 'carry_on'|'medium' }`
+- `durationDays`가 제공된 경우 1~365 사이의 정수만 허용(그 외 400).
+- `headcount`가 제공된 경우 1~20 사이의 정수만 허용(그 외 400).
+- 로그인된 사용자가 있고 `district`가 비어있으면 사용자의 가입 시 등록된 `district`로 대체한다.
+- `mapCarrierToListItem()` 헬퍼를 `/renters/search`와 공유하여 카드 렌더링에 필요한 동일한 필드 구조(`dailyPrice`, `photoUrl`, `totalPrice` 등)를 재사용하고, 여기에 `matchScore`/`matchReasons`를 추가해 응답한다.
+- 응답: `{ context: {...}, recommendations: [{ ...carrierFields, matchScore, matchReasons }] }`
+- `GET /renters/search`는 이 기능 추가로 인해 변경되지 않는다(ideation.md §13.7 원칙 유지).
+
+### 21.3 프런트엔드 구현 (`apps/web/index.html`)
+- "대여" 탭에 `⚡ 빠른 대여` 하위 탭(`#subtab-rent-quick`/`#subcontent-rent-quick`)을 `지도 탐색`/`찜한 캐리어`와 나란히 추가.
+- 홈 히어로 영역에 `⚡ 빠른 대여로 추천받기` 버튼 추가(클릭 시 대여 탭의 빠른 대여 하위 탭으로 바로 이동).
+- `submitQuickRental()`: 폼 값을 검증(기간/인원 수 클라이언트 단 재검증) 후 `POST /renters/quick-rental` 호출, 실패 시 `res.ok` 확인 후 오류 메시지 노출.
+- `renderQuickRentalCardsInto()`: 추천 카드에 `matchReasons`를 강조 문구로 표시. 반환된 추천 결과는 `currentCarriers` 배열에 병합되어, 기존 `openContactModal()`/`openDirectionsTo()`/`toggleFavorite()`가 동일하게 동작한다.
+
+### 21.4 테스트 시나리오 (신규 기능)
+#### 단위 테스트 (`apps/api/tests/unit.recommendation.test.ts`)
+1. 동네 완전 일치 > 같은 구 > 무관한 지역 순으로 점수가 높은지 확인
+2. 사이즈 일치, 높은 평점이 각각 가점되는지 확인
+3. 어떤 조건도 해당하지 않아도 최소 1개의 이유 문구를 반환하는지 확인
+4. `rankQuickRentalCandidates`가 이용 불가/미동의 캐리어를 제외하고, `limit` 이하로, 점수 내림차순으로 반환하는지 확인
+
+#### 통합 테스트 (`apps/api/tests/integration.c2c-platform.test.ts`)
+1. `POST /renters/quick-rental` 호출 시 추천이 3개 이하이며 각 추천에 `matchReasons`/`matchScore`가 포함되는지 확인
+2. 로그인한 사용자가 `district`를 생략하면 가입 시 등록한 동네로 폴백되는지 확인
+3. `durationDays`/`headcount`가 범위를 벗어나면 400을 반환하는지 확인
+
+#### E2E 테스트 (수동/브라우저 캔버스로 검증)
+1. 홈 화면에서 "⚡ 빠른 대여로 추천받기" 클릭 → 대여 탭의 빠른 대여 하위 탭으로 이동하는지 확인
+2. 조건 입력 후 "추천 3개 받기" 클릭 시 추천 카드가 렌더링되고, 카드의 "1:1 대여 문의하기" 클릭 시 기존 문의 모달이 정상적으로 열리는지 확인

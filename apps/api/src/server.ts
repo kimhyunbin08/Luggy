@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { calculateRefundAmount, calculateSettlement, calculateTotalPrice, validateMinimumRentalDays } from './domain/calculators.js';
 import { CarrierSize, defaultPolicy } from './domain/policy.js';
 import { generateSessionToken, isValidCarrierPurchaseYear, isValidDistrict, isValidName, isValidNickname, isValidPhone, isValidTravelDaysPerYear, normalizePhone } from './domain/auth.js';
+import { rankQuickRentalCandidates } from './domain/recommendation.js';
 
 type BookingStatus =
   | 'requested'
@@ -346,6 +347,40 @@ export function createApp() {
     res.status(201).json({ ok: true, review, carrier });
   });
 
+  // Shared shape used by both /renters/search results and /renters/quick-rental
+  // recommendations, so the frontend can render either with the same card UI.
+  function mapCarrierToListItem(c: CarrierItem, start: Date, end: Date) {
+    return {
+      id: c.id,
+      size: c.size,
+      brandModel: c.brandModel,
+      dailyPrice: c.dailyPrice || (c.size === 'carry_on' ? 7900 : 11900),
+      district: c.district || '서울시 강남구',
+      lat: c.lat || 37.4979,
+      lng: c.lng || 127.0276,
+      ownerName: c.ownerName || '희망이웃',
+      ownerContact: c.ownerContact || '010-0000-0000',
+      rating: c.rating,
+      reviews: c.reviews,
+      photoUrl:
+        c.photoUrl ||
+        (c.size === 'carry_on'
+          ? 'https://images.unsplash.com/photo-1565026057447-b88e3f291029?auto=format&fit=crop&w=400&q=80'
+          : 'https://images.unsplash.com/photo-1581553680321-4fffae59febd?auto=format&fit=crop&w=400&q=80'),
+      thumbnail:
+        c.photoUrl ||
+        (c.size === 'carry_on'
+          ? 'https://images.unsplash.com/photo-1565026057447-b88e3f291029?auto=format&fit=crop&w=400&q=80'
+          : 'https://images.unsplash.com/photo-1581553680321-4fffae59febd?auto=format&fit=crop&w=400&q=80'),
+      description: c.description || '상세설명 참조',
+      inspectionBadge: true,
+      scarcity: `잔여 ${c.remainingQuantity}개`,
+      originalPrice: c.originalPrice,
+      totalPrice: calculateTotalPrice(c.size, start, end, defaultPolicy),
+      remainingQuantity: c.remainingQuantity
+    };
+  }
+
   app.get('/renters/search', (req: Request, res: Response) => {
     const size = req.query.size as CarrierSize | undefined;
     const district = req.query.district as string | undefined;
@@ -374,35 +409,7 @@ export function createApp() {
 
     const sort = (req.query.sort as string) || 'recommended';
 
-    let result = filtered.map((c) => ({
-      id: c.id,
-      size: c.size,
-      brandModel: c.brandModel,
-      dailyPrice: c.dailyPrice || (c.size === 'carry_on' ? 7900 : 11900),
-      district: c.district || '서울시 강남구',
-      lat: c.lat || 37.4979,
-      lng: c.lng || 127.0276,
-      ownerName: c.ownerName || '희망이웃',
-      ownerContact: c.ownerContact || '010-0000-0000',
-      rating: c.rating,
-      reviews: c.reviews,
-      photoUrl:
-        c.photoUrl ||
-        (c.size === 'carry_on'
-          ? 'https://images.unsplash.com/photo-1565026057447-b88e3f291029?auto=format&fit=crop&w=400&q=80'
-          : 'https://images.unsplash.com/photo-1581553680321-4fffae59febd?auto=format&fit=crop&w=400&q=80'),
-      thumbnail:
-        c.photoUrl ||
-        (c.size === 'carry_on'
-          ? 'https://images.unsplash.com/photo-1565026057447-b88e3f291029?auto=format&fit=crop&w=400&q=80'
-          : 'https://images.unsplash.com/photo-1581553680321-4fffae59febd?auto=format&fit=crop&w=400&q=80'),
-      description: c.description || '상세설명 참조',
-      inspectionBadge: true,
-      scarcity: `잔여 ${c.remainingQuantity}개`,
-      originalPrice: c.originalPrice,
-      totalPrice: calculateTotalPrice(c.size, start, end, defaultPolicy),
-      remainingQuantity: c.remainingQuantity
-    }));
+    let result = filtered.map((c) => mapCarrierToListItem(c, start, end));
 
     if (sort === 'price_asc') {
       result.sort((a, b) => a.dailyPrice - b.dailyPrice);
@@ -413,6 +420,59 @@ export function createApp() {
     }
 
     res.json({ sort, items: result });
+  });
+
+  // "빠른 대여" (Quick Rental): an additive shortcut alongside the existing map
+  // exploration flow (ideation.md §13 / prd.md §24). Instead of browsing the
+  // full map, the renter answers a few quick context questions and gets a
+  // small, explainable shortlist (top 3) of the best-fit available carriers.
+  // Selecting a recommendation still routes into the normal 1:1
+  // contact-request flow - this endpoint never auto-confirms a rental.
+  app.post('/renters/quick-rental', (req: Request, res: Response) => {
+    const schema = z.object({
+      purpose: z.enum(['business', 'travel', 'etc']).optional(),
+      durationDays: z.number().optional(),
+      district: z.string().optional(),
+      headcount: z.number().optional(),
+      size: z.enum(['carry_on', 'medium']).optional()
+    });
+    const parsed = schema.parse(req.body);
+
+    if (
+      parsed.durationDays !== undefined &&
+      (!Number.isInteger(parsed.durationDays) || parsed.durationDays <= 0 || parsed.durationDays > 365)
+    ) {
+      return res.status(400).json({ message: '대여 기간은 1~365일 사이의 정수로 입력해주세요.' });
+    }
+    if (
+      parsed.headcount !== undefined &&
+      (!Number.isInteger(parsed.headcount) || parsed.headcount <= 0 || parsed.headcount > 20)
+    ) {
+      return res.status(400).json({ message: '인원 수는 1~20명 사이의 정수로 입력해주세요.' });
+    }
+
+    const maybeUser = authenticate(req);
+    const effectiveDistrict = parsed.district?.trim() || maybeUser?.district;
+
+    const ranked = rankQuickRentalCandidates(carriers, { district: effectiveDistrict, size: parsed.size });
+    const today = new Date();
+    const durationDays = parsed.durationDays ?? 2;
+    const end = new Date(today.getTime() + durationDays * 24 * 60 * 60 * 1000);
+
+    res.json({
+      context: {
+        purpose: parsed.purpose,
+        durationDays,
+        district: effectiveDistrict,
+        headcount: parsed.headcount,
+        size: parsed.size
+      },
+      recommendations: ranked.map((r) => ({
+        ...mapCarrierToListItem(r.candidate, today, end),
+        matchScore: r.score,
+        matchReasons: r.reasons
+      }))
+    });
   });
 
   app.get('/carriers/:id', (req: Request, res: Response) => {

@@ -212,6 +212,39 @@ describe('integration: owner-scoped carrier registration + contact requests', ()
   });
 });
 
+describe('integration: quick rental (빠른 대여 추천)', () => {
+  const app = createApp();
+
+  it('returns at most 3 available carrier recommendations with match reasons', async () => {
+    const res = await request(app).post('/renters/quick-rental').send({ district: '강남구 역삼동', size: 'carry_on', durationDays: 3 });
+    expect(res.status).toBe(200);
+    expect(res.body.recommendations.length).toBeLessThanOrEqual(3);
+    expect(res.body.recommendations.length).toBeGreaterThan(0);
+    for (const rec of res.body.recommendations) {
+      expect(rec.matchReasons.length).toBeGreaterThan(0);
+      expect(typeof rec.matchScore).toBe('number');
+    }
+    expect(res.body.context.district).toBe('강남구 역삼동');
+  });
+
+  it('falls back to the logged-in user\'s home district when none is provided', async () => {
+    const signup = await request(app).post('/auth/signup').send({ name: '테스트이름', nickname: '빠른대여테스트', phone: '010-8000-0001', district: '강남구 역삼동', ownsCarrier: false, agreedToTerms: true, agreedToPrivacy: true });
+    const token = signup.body.token as string;
+
+    const res = await request(app).post('/renters/quick-rental').set('Authorization', `Bearer ${token}`).send({});
+    expect(res.status).toBe(200);
+    expect(res.body.context.district).toBe('강남구 역삼동');
+  });
+
+  it('rejects an out-of-range duration or headcount', async () => {
+    const badDuration = await request(app).post('/renters/quick-rental').send({ durationDays: -1 });
+    expect(badDuration.status).toBe(400);
+
+    const badHeadcount = await request(app).post('/renters/quick-rental').send({ headcount: 0 });
+    expect(badHeadcount.status).toBe(400);
+  });
+});
+
 describe('integration: chat (1:1 direct chat threads on a contact request)', () => {
   const app = createApp();
 

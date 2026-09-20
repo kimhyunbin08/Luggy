@@ -770,6 +770,7 @@
           <p>지도에서 우리 동네 캐리어를 찾고, 소유자와 1:1로 직접 연락해서 거래하세요. PG 결제 수수료 없이 직거래로 진행됩니다.</p>
           <div class="home-hero-actions">
             <button class="btn-hero solid" onclick="switchTab('rent')">🗺️ 캐리어 빌리러 가기</button>
+            <button class="btn-hero" onclick="switchTab('rent'); switchSubTab('rent', 'quick')">⚡ 빠른 대여로 추천받기</button>
             <button class="btn-hero" onclick="switchTab('rental')">🏷️ 내 캐리어 등록하기</button>
           </div>
         </div>
@@ -801,7 +802,56 @@
       <section id="content-rent" class="tab-content">
         <div class="sub-tabs">
           <button class="sub-tab-btn active" id="subtab-rent-explore" onclick="switchSubTab('rent', 'explore')">🗺️ 지도 탐색</button>
+          <button class="sub-tab-btn" id="subtab-rent-quick" onclick="switchSubTab('rent', 'quick')">⚡ 빠른 대여</button>
           <button class="sub-tab-btn" id="subtab-rent-favorites" onclick="switchSubTab('rent', 'favorites')">❤️ 찜한 캐리어</button>
+        </div>
+
+        <div id="subcontent-rent-quick" class="sub-tab-content">
+          <div class="search-card">
+            <div class="search-title-row">
+              <div>
+                <h1 class="search-title">⚡ 빠른 대여로 3초 만에 추천받기</h1>
+                <p class="search-subtitle">지도를 직접 둘러보지 않아도, 몇 가지만 알려주시면 지금 가장 적합한 이웃 캐리어 3개를 골라드려요. 추천은 최종 확정이 아니며, 마음에 드는 이웃을 골라 기존과 동일하게 1:1로 문의하게 됩니다.</p>
+              </div>
+            </div>
+            <div class="search-grid">
+              <div class="form-group">
+                <label class="form-label">여행/출장 목적</label>
+                <select id="qr-purpose" class="form-select">
+                  <option value="travel">여행</option>
+                  <option value="business">출장</option>
+                  <option value="etc">기타</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">캐리어 규격</label>
+                <select id="qr-size" class="form-select">
+                  <option value="carry_on">기내용 20인치</option>
+                  <option value="medium">중형 24인치</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">대여 기간(일)</label>
+                <input type="number" id="qr-duration" class="form-input" placeholder="예: 3" min="1" max="365" step="1" value="3" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">동네/지역 (선택, 비우면 내 동네로 추천)</label>
+                <input type="text" id="qr-district" class="form-input" placeholder="예: 강남구 역삼동" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">동반 인원 수</label>
+                <input type="number" id="qr-headcount" class="form-input" placeholder="예: 1" min="1" max="20" step="1" value="1" />
+              </div>
+              <div class="form-group">
+                <button class="btn-orange" onclick="submitQuickRental()">⚡ 추천 3개 받기</button>
+              </div>
+            </div>
+          </div>
+
+          <div id="quick-rental-empty" style="text-align:center; padding: 24px; color: var(--text-secondary);">
+            위 조건을 입력하고 "추천 3개 받기"를 눌러보세요.
+          </div>
+          <div class="card-grid" id="quick-rental-grid"></div>
         </div>
 
         <div id="subcontent-rent-explore" class="sub-tab-content active">
@@ -1901,6 +1951,104 @@
                 <span>★ ${item.rating || 5.0} (${item.reviews || 0})</span>
               </div>
               <p class="carrier-desc">${item.description || '소유자와 직접 1:1 상의하여 일정을 정하세요.'}</p>
+              <div class="carrier-action-row">
+                <button class="btn-outline" onclick="openDirectionsTo('${item.id}')" title="내 위치에서 경로 안내">
+                  🧭 경로 안내
+                </button>
+                <button class="btn-orange" style="flex: 1;" onclick="openContactModal('${item.id}')">
+                  💬 1:1 대여 문의하기
+                </button>
+              </div>
+            </div>
+          </div>
+        `).join('');
+      }
+
+      // "빠른 대여" (Quick Rental): fetches a small, explainable top-3
+      // recommendation shortlist instead of the full map search list. Picking
+      // a recommended carrier still opens the normal 1:1 contact modal - this
+      // never auto-confirms a rental, it only narrows down candidates.
+      async function submitQuickRental() {
+        const purpose = document.getElementById('qr-purpose').value;
+        const size = document.getElementById('qr-size').value;
+        const durationDaysRaw = document.getElementById('qr-duration').value;
+        const district = document.getElementById('qr-district').value.trim();
+        const headcountRaw = document.getElementById('qr-headcount').value;
+
+        const durationDays = Number(durationDaysRaw);
+        if (!Number.isInteger(durationDays) || durationDays <= 0 || durationDays > 365) {
+          alert('대여 기간은 1~365일 사이의 정수로 입력해주세요.');
+          return;
+        }
+        const headcount = Number(headcountRaw);
+        if (!Number.isInteger(headcount) || headcount <= 0 || headcount > 20) {
+          alert('동반 인원 수는 1~20명 사이의 정수로 입력해주세요.');
+          return;
+        }
+
+        const grid = document.getElementById('quick-rental-grid');
+        const emptyState = document.getElementById('quick-rental-empty');
+        emptyState.innerText = '추천을 불러오는 중입니다...';
+        emptyState.style.display = 'block';
+        grid.innerHTML = '';
+
+        try {
+          const res = await fetch(`${API_BASE}/renters/quick-rental`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders() },
+            body: JSON.stringify({ purpose, size, durationDays, district: district || undefined, headcount })
+          });
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            emptyState.innerText = errData.message || '추천을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.';
+            emptyState.style.display = 'block';
+            return;
+          }
+          const data = await res.json();
+          const recommendations = data.recommendations || [];
+
+          logFunnelEvent('quick_rental_recommend', { purpose, size, durationDays, district: data.context?.district, headcount, count: recommendations.length });
+
+          if (recommendations.length === 0) {
+            emptyState.innerText = '조건에 맞는 추천 매물을 찾지 못했습니다. 지도 탐색 탭에서 직접 찾아보세요.';
+            emptyState.style.display = 'block';
+            return;
+          }
+
+          emptyState.style.display = 'none';
+          // Merge recommended carriers into currentCarriers so the shared
+          // openContactModal()/openDirectionsTo()/toggleFavorite() flows can
+          // find them by id, exactly as with map-search results.
+          recommendations.forEach((item) => {
+            const idx = currentCarriers.findIndex((c) => c.id === item.id);
+            if (idx >= 0) currentCarriers[idx] = item;
+            else currentCarriers.push(item);
+          });
+          renderQuickRentalCardsInto(grid, recommendations);
+        } catch (err) {
+          emptyState.innerText = '네트워크 오류로 추천을 불러오지 못했습니다.';
+          emptyState.style.display = 'block';
+        }
+      }
+
+      function renderQuickRentalCardsInto(grid, items) {
+        grid.innerHTML = items.map(item => `
+          <div class="carrier-card">
+            <div class="carrier-img-wrap">
+              <img src="${item.photoUrl || 'https://images.unsplash.com/photo-1565026057447-b88e3f291029?auto=format&fit=crop&w=600&q=80'}" alt="${item.brandModel}" class="carrier-img" />
+              <span class="district-badge">📍 ${item.district || ''}</span>
+              <span class="price-tag-badge">${(item.dailyPrice || 0).toLocaleString()}원/일</span>
+              <button class="favorite-btn ${favoriteIds.has(item.id) ? 'active' : ''}" onclick="toggleFavorite('${item.id}')" title="찜하기">
+                ${favoriteIds.has(item.id) ? '❤️' : '🤍'}
+              </button>
+            </div>
+            <div class="carrier-body">
+              <h3 class="carrier-title">${item.brandModel}</h3>
+              <div class="owner-info-line">
+                <span>👤 ${item.ownerName || '이웃'}</span>
+                <span>★ ${item.rating || 5.0} (${item.reviews || 0})</span>
+              </div>
+              <p class="carrier-desc" style="color: var(--accent-orange, #ff7a1a); font-weight: 600;">${(item.matchReasons || []).join(' · ')}</p>
               <div class="carrier-action-row">
                 <button class="btn-outline" onclick="openDirectionsTo('${item.id}')" title="내 위치에서 경로 안내">
                   🧭 경로 안내
