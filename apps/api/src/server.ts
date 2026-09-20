@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { calculateRefundAmount, calculateSettlement, calculateTotalPrice, validateMinimumRentalDays } from './domain/calculators.js';
 import { CarrierSize, defaultPolicy } from './domain/policy.js';
+import { generateSessionToken, isValidNickname, isValidPhone, normalizePhone } from './domain/auth.js';
 
 type BookingStatus =
   | 'requested'
@@ -32,6 +33,7 @@ type Booking = {
 
 type CarrierItem = {
   id: string;
+  ownerId?: string;
   size: CarrierSize;
   brandModel: string;
   dailyPrice: number;
@@ -53,12 +55,31 @@ type CarrierItem = {
 type ContactRequest = {
   id: string;
   carrierId: string;
+  renterId?: string;
   renterName: string;
   renterPhone: string;
   startDate: string;
   endDate: string;
   message: string;
   status: 'pending' | 'accepted' | 'completed' | 'cancelled';
+  createdAt: string;
+};
+
+type User = {
+  id: string;
+  nickname: string;
+  phone: string;
+  createdAt: string;
+};
+
+type Review = {
+  id: string;
+  carrierId: string;
+  contactRequestId: string;
+  reviewerId?: string;
+  reviewerName: string;
+  rating: number;
+  comment: string;
   createdAt: string;
 };
 
@@ -71,6 +92,35 @@ const carriers: CarrierItem[] = [
 const contactRequests: ContactRequest[] = [];
 const bookings = new Map<string, Booking>();
 
+// --- Auth (simple phone-based session, no PG/password flow) ---
+const users: User[] = [];
+const sessions = new Map<string, string>(); // token -> userId
+// --- Favorites (찜하기) ---
+type Favorite = { id: string; userId: string; carrierId: string; createdAt: string };
+const favorites: Favorite[] = [];
+// --- Reviews (반납 완료 후 후기) ---
+const reviews: Review[] = [];
+
+function findUserByPhone(phone: string): User | undefined {
+  return users.find((u) => u.phone === phone);
+}
+
+function authenticate(req: Request): User | null {
+  const header = req.header('Authorization') || '';
+  const token = header.startsWith('Bearer ') ? header.slice('Bearer '.length) : '';
+  if (!token) return null;
+  const userId = sessions.get(token);
+  if (!userId) return null;
+  return users.find((u) => u.id === userId) || null;
+}
+
+function requireAuth(req: Request, res: Response, next: NextFunction) {
+  const user = authenticate(req);
+  if (!user) return res.status(401).json({ message: '로그인이 필요합니다.' });
+  (req as Request & { user: User }).user = user;
+  next();
+}
+
 export function createApp() {
   const app = express();
   app.use(express.json());
@@ -78,10 +128,150 @@ export function createApp() {
   // CORS for local web dev
   app.use((_req: Request, res: Response, next: NextFunction) => {
     res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     if (_req.method === 'OPTIONS') return res.sendStatus(200);
     next();
+  });
+
+  // ============================================================
+  // AUTH ENDPOINTS (phone-based login/signup, no password/PG flow)
+  // ============================================================
+
+  app.post('/auth/signup', (req: Request, res: Response) => {
+    const schema = z.object({ nickname: z.string(), phone: z.string() });
+    const parsed = schema.parse(req.body);
+    if (!isValidNickname(parsed.nickname)) {
+      return res.status(400).json({ message: '닉네임은 2~20자로 입력해주세요.' });
+    }
+    if (!isValidPhone(parsed.phone)) {
+      return res.status(400).json({ message: '올바른 휴대폰 번호 형식이 아닙니다. (예: 010-1234-5678)' });
+    }
+    const phone = normalizePhone(parsed.phone);
+    if (findUserByPhone(phone)) {
+      return res.status(409).json({ message: '이미 가입된 휴대폰 번호입니다. 로그인해주세요.' });
+    }
+    const user: User = { id: `u${users.length + 1}`, nickname: parsed.nickname.trim(), phone, createdAt: new Date().toISOString() };
+    users.push(user);
+    const token = generateSessionToken();
+    sessions.set(token, user.id);
+    res.status(201).json({ token, user });
+  });
+
+  app.post('/auth/login', (req: Request, res: Response) => {
+    const schema = z.object({ phone: z.string() });
+    const parsed = schema.parse(req.body);
+    if (!isValidPhone(parsed.phone)) {
+      return res.status(400).json({ message: '올바른 휴대폰 번호 형식이 아닙니다.' });
+    }
+    const phone = normalizePhone(parsed.phone);
+    const user = findUserByPhone(phone);
+    if (!user) {
+      return res.status(404).json({ message: '가입되지 않은 휴대폰 번호입니다. 먼저 가입해주세요.' });
+    }
+    const token = generateSessionToken();
+    sessions.set(token, user.id);
+    res.json({ token, user });
+  });
+
+  app.post('/auth/logout', requireAuth, (req: Request, res: Response) => {
+    const header = req.header('Authorization') || '';
+    const token = header.startsWith('Bearer ') ? header.slice('Bearer '.length) : '';
+    sessions.delete(token);
+    res.json({ ok: true });
+  });
+
+  app.get('/auth/me', requireAuth, (req: Request, res: Response) => {
+    res.json({ user: (req as Request & { user: User }).user });
+  });
+
+  // ============================================================
+  // FAVORITES ENDPOINTS (찜하기)
+  // ============================================================
+
+  app.get('/favorites', requireAuth, (req: Request, res: Response) => {
+    const user = (req as Request & { user: User }).user;
+    const mine = favorites.filter((f) => f.userId === user.id);
+    const items = mine
+      .map((f) => carriers.find((c) => c.id === f.carrierId))
+      .filter((c): c is CarrierItem => Boolean(c));
+    res.json({ favorites: mine, items });
+  });
+
+  app.post('/favorites', requireAuth, (req: Request, res: Response) => {
+    const user = (req as Request & { user: User }).user;
+    const schema = z.object({ carrierId: z.string() });
+    const parsed = schema.parse(req.body);
+    const carrier = carriers.find((c) => c.id === parsed.carrierId);
+    if (!carrier) return res.status(404).json({ message: 'carrier not found' });
+    const existing = favorites.find((f) => f.userId === user.id && f.carrierId === parsed.carrierId);
+    if (existing) return res.status(200).json({ ok: true, favorite: existing });
+    const favorite: Favorite = { id: `fav${favorites.length + 1}`, userId: user.id, carrierId: parsed.carrierId, createdAt: new Date().toISOString() };
+    favorites.push(favorite);
+    res.status(201).json({ ok: true, favorite });
+  });
+
+  app.delete('/favorites/:carrierId', requireAuth, (req: Request, res: Response) => {
+    const user = (req as Request & { user: User }).user;
+    const carrierId = Array.isArray(req.params.carrierId) ? req.params.carrierId[0] : req.params.carrierId;
+    const idx = favorites.findIndex((f) => f.userId === user.id && f.carrierId === carrierId);
+    if (idx === -1) return res.status(404).json({ message: 'favorite not found' });
+    favorites.splice(idx, 1);
+    res.json({ ok: true });
+  });
+
+  // ============================================================
+  // REVIEW ENDPOINTS (반납 완료 후 후기 작성)
+  // ============================================================
+
+  app.get('/carriers/:id/reviews', (req: Request, res: Response) => {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const items = reviews.filter((r) => r.carrierId === id);
+    res.json({ reviews: items });
+  });
+
+  app.post('/carriers/:id/reviews', (req: Request, res: Response) => {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const carrier = carriers.find((c) => c.id === id);
+    if (!carrier) return res.status(404).json({ message: 'carrier not found' });
+
+    const schema = z.object({
+      contactRequestId: z.string(),
+      reviewerName: z.string().default('익명 이웃'),
+      rating: z.number().min(1).max(5),
+      comment: z.string().default('')
+    });
+    const parsed = schema.parse(req.body);
+    const contactRequest = contactRequests.find((r) => r.id === parsed.contactRequestId);
+    if (!contactRequest || contactRequest.carrierId !== id) {
+      return res.status(404).json({ message: 'contact request not found for this carrier' });
+    }
+    if (contactRequest.status !== 'completed') {
+      return res.status(400).json({ message: '반납 완료된 거래에만 후기를 작성할 수 있습니다.' });
+    }
+    if (reviews.some((r) => r.contactRequestId === parsed.contactRequestId)) {
+      return res.status(409).json({ message: '이미 이 거래에 대한 후기를 작성했습니다.' });
+    }
+
+    const maybeUser = authenticate(req);
+    const review: Review = {
+      id: `rev${reviews.length + 1}`,
+      carrierId: id,
+      contactRequestId: parsed.contactRequestId,
+      reviewerId: maybeUser?.id,
+      reviewerName: maybeUser?.nickname || parsed.reviewerName,
+      rating: parsed.rating,
+      comment: parsed.comment,
+      createdAt: new Date().toISOString()
+    };
+    reviews.push(review);
+
+    // Keep the carrier's aggregate rating/review-count in sync for search/detail views.
+    const carrierReviews = reviews.filter((r) => r.carrierId === id);
+    carrier.reviews = carrierReviews.length;
+    carrier.rating = Number((carrierReviews.reduce((sum, r) => sum + r.rating, 0) / carrierReviews.length).toFixed(1));
+
+    res.status(201).json({ ok: true, review, carrier });
   });
 
   app.get('/renters/search', (req: Request, res: Response) => {
@@ -161,10 +351,11 @@ export function createApp() {
   });
 
   app.post('/contact-requests', (req: Request, res: Response) => {
+    const maybeUser = authenticate(req);
     const schema = z.object({
       carrierId: z.string(),
-      renterName: z.string().default('대여자'),
-      renterPhone: z.string().default('010-1234-5678'),
+      renterName: z.string().optional(),
+      renterPhone: z.string().optional(),
       startDate: z.string().optional(),
       endDate: z.string().optional(),
       message: z.string().default('대여 문의 드립니다.')
@@ -177,8 +368,9 @@ export function createApp() {
     const newReq: ContactRequest = {
       id,
       carrierId: parsed.carrierId,
-      renterName: parsed.renterName,
-      renterPhone: parsed.renterPhone,
+      renterId: maybeUser?.id,
+      renterName: maybeUser?.nickname || parsed.renterName || '대여자',
+      renterPhone: maybeUser?.phone || parsed.renterPhone || '010-1234-5678',
       startDate: parsed.startDate || '2026-08-10',
       endDate: parsed.endDate || '2026-08-12',
       message: parsed.message,
@@ -197,8 +389,13 @@ export function createApp() {
     });
   });
 
-  app.get('/contact-requests', (_req: Request, res: Response) => {
-    res.json({ requests: contactRequests });
+  app.get('/contact-requests', (req: Request, res: Response) => {
+    const maybeUser = authenticate(req);
+    if (!maybeUser) return res.json({ requests: contactRequests });
+    // Scoped view: requests I sent as a renter, or requests received on carriers I own.
+    const myCarrierIds = new Set(carriers.filter((c) => c.ownerId === maybeUser.id).map((c) => c.id));
+    const mine = contactRequests.filter((r) => r.renterId === maybeUser.id || myCarrierIds.has(r.carrierId));
+    res.json({ requests: mine });
   });
 
   app.post('/contact-requests/:id/status', (req: Request, res: Response) => {
@@ -271,13 +468,14 @@ export function createApp() {
   });
 
   app.post('/providers/carriers', (req: Request, res: Response) => {
+    const maybeUser = authenticate(req);
     const id = `c${carriers.length + 1}`;
     const size = (req.body?.size as CarrierSize) || 'carry_on';
     const brandModel = req.body?.brandModel || (size === 'carry_on' ? '이웃 등록 기내용 캐리어' : '이웃 등록 중형 캐리어');
     const district = req.body?.district || '강남구 역삼동';
     const dailyPrice = Number(req.body?.dailyPrice) || (size === 'carry_on' ? 7900 : 11900);
-    const ownerName = req.body?.ownerName || '새이웃';
-    const ownerContact = req.body?.ownerContact || '010-1111-2222';
+    const ownerName = req.body?.ownerName || maybeUser?.nickname || '새이웃';
+    const ownerContact = req.body?.ownerContact || maybeUser?.phone || '010-1111-2222';
     const description = req.body?.description || '소유자가 직접 등록한 대여 가능 캐리어입니다.';
     const lat = Number(req.body?.lat) || 37.5000;
     const lng = Number(req.body?.lng) || 127.0300;
@@ -289,6 +487,7 @@ export function createApp() {
 
     const newCarrier: CarrierItem = {
       id,
+      ownerId: maybeUser?.id,
       size,
       brandModel,
       dailyPrice,
@@ -308,6 +507,12 @@ export function createApp() {
     };
     carriers.push(newCarrier);
     res.status(201).json({ id, carrier: newCarrier });
+  });
+
+  app.get('/providers/me/carriers', requireAuth, (req: Request, res: Response) => {
+    const user = (req as Request & { user: User }).user;
+    const mine = carriers.filter((c) => c.ownerId === user.id);
+    res.json({ items: mine });
   });
 
   app.post('/providers/carriers/:id/opt-in', (req: Request, res: Response) => {
@@ -365,9 +570,14 @@ export function createApp() {
   return app;
 }
 
-if (process.env.NODE_ENV !== 'test') {
+// Only auto-start when this file is executed directly (e.g. `node dist/server.js`).
+// `dev.ts` imports `createApp` and manages its own `listen()` call, so this guard
+// prevents a duplicate listener / EADDRINUSE conflict during local dev.
+const isDirectEntry = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
+if (isDirectEntry && process.env.NODE_ENV !== 'test') {
   const app = createApp();
-  app.listen(3001, () => {
+  const port = Number(process.env.PORT) || 3001;
+  app.listen(port, () => {
     // noop
   });
 }

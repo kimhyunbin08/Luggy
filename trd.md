@@ -183,3 +183,51 @@
 1. Provider 기능/엔티티/API 누락 보완 완료
 2. ledger/cost/claim/worker/상태머신 요구사항 반영 완료
 3. PRD/TRD 불일치 항목(정산·검수·정책·KPI) 동기화 완료
+
+## 16. 로그인/찜하기/후기 API 및 데이터 (C2C 플랫폼 신규 기능)
+결제(PG)를 제외한 플랫폼 전 기능 구현 지시에 따라 신규 구현된 기술 요구사항이다. `apps/api/src/server.ts` 및 `apps/api/src/domain/auth.ts`에 구현되어 있다.
+
+### 16.1 신규 데이터 엔티티
+- `User` (id, nickname, phone, createdAt) — 휴대폰 번호 기반, 비밀번호 없음
+- `sessions`: `Map<token, userId>` (인메모리 세션 스토어, 오브젝트 인증에 `Authorization: Bearer <token>` 사용)
+- `favorites`: (id, userId, carrierId, createdAt)
+- `Review` (id, carrierId, contactRequestId, reviewerId, reviewerName, rating, comment, createdAt)
+- `CarrierItem`에 `ownerId?`(등록한 User), `ContactRequest`에 `renterId?`(로그인 렌터) 필드 추가
+
+### 16.2 신규 API
+1. `POST /auth/signup` — `{ nickname, phone }` -> `{ token, user }`
+2. `POST /auth/login` — `{ phone }` -> `{ token, user }` (가입 이력 없으면 404)
+3. `POST /auth/logout` — 세션 토큰 무효화
+4. `GET /auth/me` — 인증 헤더로 현재 로그인 사용자 조회
+5. `GET /favorites` — 인증 필요, 본인 찜 목록(`favorites`)과 캐리어 상세(`items`) 반환
+6. `POST /favorites` — `{ carrierId }`, 인증 필요
+7. `DELETE /favorites/:carrierId` — 인증 필요
+8. `GET /carriers/:id/reviews` — 캐리어별 리뷰 목록
+9. `POST /carriers/:id/reviews` — `{ contactRequestId, rating, comment }`, 인증 필요. 해당 `contactRequestId`의 상태가 `completed`가 아니면 400, 중복 리뷰면 409. 성공 시 캐리어 `rating`/`reviews` 재계산.
+10. `GET /providers/me/carriers` — 인증 필요, 본인이 등록한 캐리어 목록
+11. 기존 `POST /providers/carriers`는 인증 시 `ownerId` 자동 첨부, 소유자 이름/연락처 기본값을 프로필에서 채움.
+12. 기존 `POST /contact-requests`는 인증 시 `renterId` 자동 첨부, 이름/연락처 자동 채움(비로그인 시 종전과 동일하게 직접 입력).
+13. 기존 `GET /contact-requests`는 인증 시 본인이 렌터이거나 본인 소유 캐리어에 대한 문의만 필터링, 비인증 시 종전 동작(전체 목록) 유지.
+
+### 16.3 인증 방식
+- 비밀번호/PG 본인인증 없음. 휴대폰 번호를 식별자로 사용하는 경량 세션(오파크 토큰) 방식.
+- 토큰은 클라이언트 localStorage(`luggy_token`, `luggy_user`)에 저장, API 호출 시 `Authorization: Bearer <token>` 헤더로 전달.
+- CORS 사전 요청(OPTIONS)에 `Authorization` 헤더를 명시적으로 허용해야 브라우저에서 인증 API 호출이 차단되지 않는다(로컬 검증 중 발견/수정됨).
+
+### 16.4 테스트 시나리오 (신규 기능)
+#### 단위 테스트
+1. 휴대폰 번호 정규화(`normalizePhone`)/유효성 검증(`isValidPhone`)
+2. 닉네임 유효성 검증(`isValidNickname`)
+3. 세션 토큰 생성 규칙(`generateSessionToken`) — 유일성/포맷 검증
+
+#### 통합 테스트
+1. 가입 -> 로그인 -> `/auth/me` 조회 정합성
+2. 찜하기 추가 -> 목록 조회 -> 삭제 흐름
+3. 리뷰: 미완료 문의 건 리뷰 차단(400), 완료 후 리뷰 성공, 중복 리뷰 차단(409), 캐리어 평점/리뷰수 재계산 검증
+4. 소유자 스코핑: 로그인한 Owner가 등록한 캐리어만 `/providers/me/carriers`에 노출, 해당 캐리어에 대한 문의만 `/contact-requests`에 노출
+
+#### E2E 테스트
+1. 로그인 모달 오픈 -> 가입 제출 -> 헤더 프로필 칩(닉네임) 노출 확인
+2. 캐리어 카드 하트 클릭(찜) -> `❤️ 찜한 캐리어` 탭에서 확인
+3. 완료 처리된 1:1 문의에서 리뷰 제출 -> 캐리어 상세/카드 평점 갱신 확인
+4. (알려진 갭) 현재 `apps/web/e2e/gate.spec.ts`는 실제 앱이 아닌 `data:text/html` 정적 스텁을 검증하는 자리표시자 테스트다. 로그인/찜/리뷰 흐름을 검증하는 실제 브라우저 기반 E2E는 아직 이 저장소의 자동화된 Playwright 스위트에 포함되어 있지 않으며(수동/브라우저 캔버스로 검증됨), 후속 작업으로 추가가 필요하다.

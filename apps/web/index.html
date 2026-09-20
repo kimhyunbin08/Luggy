@@ -106,6 +106,60 @@
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
       }
 
+      .auth-area { display: flex; align-items: center; gap: 8px; }
+
+      .btn-login {
+        border: none;
+        background: var(--accent-orange);
+        color: #fff;
+        padding: 8px 16px;
+        font-size: 13px;
+        font-weight: 700;
+        border-radius: 20px;
+        cursor: pointer;
+        min-height: 36px;
+      }
+      .btn-login:hover { background: var(--accent-orange-hover); }
+
+      .profile-chip {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: rgba(0, 0, 0, 0.04);
+        padding: 6px 8px 6px 12px;
+        border-radius: 20px;
+      }
+      .profile-chip span { font-size: 13px; font-weight: 700; color: var(--text-primary); }
+      .btn-logout {
+        border: none;
+        background: transparent;
+        color: var(--text-secondary);
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        padding: 6px 10px;
+        border-radius: 14px;
+      }
+      .btn-logout:hover { background: rgba(0, 0, 0, 0.06); }
+
+      .favorite-btn {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        border: none;
+        background: rgba(255, 255, 255, 0.9);
+        font-size: 16px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+      }
+      .favorite-btn.active { color: var(--accent-orange); }
+
       main {
         max-width: 1140px;
         margin: 0 auto;
@@ -427,10 +481,14 @@
         </div>
         <nav class="nav-tabs">
           <button class="nav-btn active" id="tab-renter" onclick="switchTab('renter')">🗺️ 지도 탐색 (Renter)</button>
+          <button class="nav-btn" id="tab-favorites" onclick="switchTab('favorites')">❤️ 찜한 캐리어</button>
           <button class="nav-btn" id="tab-provider" onclick="switchTab('provider')">➕ 내 캐리어 대여 등록</button>
           <button class="nav-btn" id="tab-requests" onclick="switchTab('requests')">📋 내 대여 문의 내역</button>
           <button class="nav-btn" id="tab-analytics" onclick="switchTab('analytics')">📊 퍼널 로그</button>
         </nav>
+        <div class="auth-area" id="auth-area">
+          <button class="btn-login" id="btn-login-open" onclick="openLoginModal()">👤 로그인 / 가입</button>
+        </div>
       </div>
     </header>
 
@@ -493,6 +551,17 @@
 
         <div class="card-grid" id="carrier-card-grid">
           <!-- Dynamic Carrier Cards -->
+        </div>
+      </section>
+
+      <!-- FAVORITES TAB (찜한 캐리어) -->
+      <section id="content-favorites" class="tab-content">
+        <div class="search-card">
+          <h2 class="search-title">❤️ 내가 찜한 캐리어</h2>
+          <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
+            로그인 후 마음에 드는 이웃 캐리어를 찜해두면 여기서 모아볼 수 있습니다.
+          </p>
+          <div class="card-grid" id="favorite-card-grid"></div>
         </div>
       </section>
 
@@ -633,6 +702,32 @@
       </div>
     </div>
 
+    <!-- Login / Signup Modal -->
+    <div class="modal-overlay" id="login-modal">
+      <div class="modal-card">
+        <h2 class="modal-title" id="login-modal-title">👤 로그인</h2>
+        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
+          휴대폰 번호만으로 간편하게 가입/로그인합니다. (별도 비밀번호 없음, 결제 정보 없음)
+        </p>
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <div class="form-group" id="login-nickname-group">
+            <label class="form-label">닉네임</label>
+            <input type="text" id="l-nickname" class="form-input" placeholder="예: 역삼동이웃" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">휴대폰 번호</label>
+            <input type="text" id="l-phone" class="form-input" placeholder="010-1234-5678" />
+          </div>
+          <div id="login-modal-error" style="color: var(--accent-red); font-size: 12px; display: none;"></div>
+          <button class="btn-orange" id="login-submit-btn" onclick="submitAuth()">가입하고 시작하기</button>
+          <button class="btn-logout" style="align-self: center;" onclick="toggleAuthMode()" id="login-mode-toggle">
+            이미 가입했어요, 로그인할게요
+          </button>
+          <button class="btn-orange" style="background: #e5e5ea; color: var(--text-primary);" onclick="closeLoginModal()">닫기</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Owner Contact Release Sheet Modal -->
     <div class="modal-overlay" id="owner-release-modal">
       <div class="modal-card" style="text-align: center;">
@@ -653,6 +748,14 @@
       </div>
     </div>
 
+    <!-- Kakao Map API key bridge: import.meta.env is only valid inside an ES
+         module, so we read the Vite-injected env var here (module scope) and
+         expose it on window for the classic, globally-scoped script below,
+         which inline onclick="..." handlers throughout this page rely on. -->
+    <script type="module">
+      window.KAKAO_APP_KEY = window.KAKAO_APP_KEY || (import.meta.env && import.meta.env.VITE_KAKAO_MAP_KEY) || '';
+    </script>
+
     <!-- Leaflet JS for Map (Default Zero-Config Fallback) -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
@@ -665,8 +768,168 @@
       let selectedCarrier = null;
       let isKakaoMap = false;
 
-      // Global Kakao Map Key configuration
-      const KAKAO_KEY = (import.meta.env && import.meta.env.VITE_KAKAO_MAP_KEY) || window.KAKAO_APP_KEY || '';
+      // Global Kakao Map Key configuration. Read lazily (not at top-level parse
+      // time) because the module bridge script above sets window.KAKAO_APP_KEY
+      // as a deferred ES module, which executes AFTER this classic script's
+      // top-level code but before DOMContentLoaded / initMap().
+      function getKakaoKey() { return window.KAKAO_APP_KEY || ''; }
+
+      // --- Auth State (phone-based session, no password/PG flow) ---
+      let authToken = localStorage.getItem('luggy_token') || null;
+      let currentUser = JSON.parse(localStorage.getItem('luggy_user') || 'null');
+      let authMode = 'signup'; // 'signup' | 'login'
+      let favoriteIds = new Set();
+
+      function authHeaders() {
+        return authToken ? { Authorization: `Bearer ${authToken}` } : {};
+      }
+
+      function renderAuthArea() {
+        const el = document.getElementById('auth-area');
+        if (currentUser) {
+          el.innerHTML = `
+            <div class="profile-chip">
+              <span>👋 ${currentUser.nickname}</span>
+              <button class="btn-logout" onclick="logout()">로그아웃</button>
+            </div>
+          `;
+        } else {
+          el.innerHTML = `<button class="btn-login" id="btn-login-open" onclick="openLoginModal()">👤 로그인 / 가입</button>`;
+        }
+      }
+
+      function openLoginModal() {
+        authMode = 'signup';
+        applyAuthModeUI();
+        document.getElementById('login-modal-error').style.display = 'none';
+        document.getElementById('login-modal').style.display = 'flex';
+      }
+
+      function closeLoginModal() {
+        document.getElementById('login-modal').style.display = 'none';
+      }
+
+      function toggleAuthMode() {
+        authMode = authMode === 'signup' ? 'login' : 'signup';
+        applyAuthModeUI();
+      }
+
+      function applyAuthModeUI() {
+        const isSignup = authMode === 'signup';
+        document.getElementById('login-modal-title').innerText = isSignup ? '👤 회원가입' : '👤 로그인';
+        document.getElementById('login-nickname-group').style.display = isSignup ? 'block' : 'none';
+        document.getElementById('login-submit-btn').innerText = isSignup ? '가입하고 시작하기' : '로그인하기';
+        document.getElementById('login-mode-toggle').innerText = isSignup
+          ? '이미 가입했어요, 로그인할게요'
+          : '아직 계정이 없어요, 가입할게요';
+      }
+
+      async function submitAuth() {
+        const nickname = document.getElementById('l-nickname').value.trim();
+        const phone = document.getElementById('l-phone').value.trim();
+        const errorBox = document.getElementById('login-modal-error');
+        errorBox.style.display = 'none';
+
+        const endpoint = authMode === 'signup' ? '/auth/signup' : '/auth/login';
+        const body = authMode === 'signup' ? { nickname, phone } : { phone };
+
+        try {
+          const res = await fetch(`${API_BASE}${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            errorBox.innerText = data.message || '요청 처리 중 오류가 발생했습니다.';
+            errorBox.style.display = 'block';
+            return;
+          }
+          authToken = data.token;
+          currentUser = data.user;
+          localStorage.setItem('luggy_token', authToken);
+          localStorage.setItem('luggy_user', JSON.stringify(currentUser));
+          renderAuthArea();
+          closeLoginModal();
+          logFunnelEvent(authMode === 'signup' ? 'signup_complete' : 'login_complete', { userId: currentUser.id });
+          fetchFavoriteIds();
+        } catch (err) {
+          errorBox.innerText = '네트워크 오류로 로그인/가입에 실패했습니다.';
+          errorBox.style.display = 'block';
+        }
+      }
+
+      function logout() {
+        authToken = null;
+        currentUser = null;
+        favoriteIds = new Set();
+        localStorage.removeItem('luggy_token');
+        localStorage.removeItem('luggy_user');
+        renderAuthArea();
+        logFunnelEvent('logout');
+      }
+
+      async function fetchFavoriteIds() {
+        if (!authToken) { favoriteIds = new Set(); return; }
+        try {
+          const res = await fetch(`${API_BASE}/favorites`, { headers: authHeaders() });
+          const data = await res.json();
+          favoriteIds = new Set((data.items || []).map(c => c.id));
+        } catch (err) {
+          favoriteIds = new Set();
+        }
+      }
+
+      async function toggleFavorite(carrierId) {
+        if (!authToken) {
+          openLoginModal();
+          return;
+        }
+        const isFavorited = favoriteIds.has(carrierId);
+        try {
+          if (isFavorited) {
+            await fetch(`${API_BASE}/favorites/${carrierId}`, { method: 'DELETE', headers: authHeaders() });
+            favoriteIds.delete(carrierId);
+          } else {
+            await fetch(`${API_BASE}/favorites`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', ...authHeaders() },
+              body: JSON.stringify({ carrierId })
+            });
+            favoriteIds.add(carrierId);
+          }
+          logFunnelEvent('favorite_toggle', { carrierId, favorited: !isFavorited });
+          renderCarrierCards(currentCarriers);
+          if (document.getElementById('content-favorites').classList.contains('active')) {
+            fetchAndRenderFavorites();
+          }
+        } catch (err) {
+          alert('찜하기 처리 중 오류가 발생했습니다.');
+        }
+      }
+
+      async function fetchAndRenderFavorites() {
+        const grid = document.getElementById('favorite-card-grid');
+        if (!authToken) {
+          grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: var(--text-secondary);">로그인 후 찜한 캐리어를 확인할 수 있습니다.</div>`;
+          return;
+        }
+        try {
+          const res = await fetch(`${API_BASE}/favorites`, { headers: authHeaders() });
+          const data = await res.json();
+          const items = data.items || [];
+          favoriteIds = new Set(items.map(c => c.id));
+          if (items.length === 0) {
+            grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: var(--text-secondary);">아직 찜한 캐리어가 없습니다. 지도 탐색에서 하트를 눌러보세요!</div>`;
+            return;
+          }
+          currentCarriers = currentCarriers.length ? currentCarriers : items;
+          const merged = items.map(c => ({ ...c, dailyPrice: c.dailyPrice || c.basePrice || 7900 }));
+          renderCardsInto(grid, merged);
+        } catch (err) {
+          grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: var(--text-secondary);">찜한 캐리어를 불러오는 중 오류가 발생했습니다.</div>`;
+        }
+      }
 
       function logFunnelEvent(eventName, payload = {}) {
         const box = document.getElementById('event-log-box');
@@ -697,6 +960,8 @@
           fetchContactRequests();
         } else if (tabName === 'provider') {
           renderProviderCarrierList();
+        } else if (tabName === 'favorites') {
+          fetchAndRenderFavorites();
         }
       }
 
@@ -713,6 +978,13 @@
             initKakaoMap();
           });
         };
+        script.onerror = () => {
+          // Invalid key, network block, or blocked domain: fall back to the
+          // zero-config Leaflet/OpenStreetMap renderer instead of leaving a
+          // permanently blank map.
+          isKakaoMap = false;
+          initLeafletMap();
+        };
         document.head.appendChild(script);
         return true;
       }
@@ -728,16 +1000,23 @@
         if (currentCarriers.length > 0) renderMapPins(currentCarriers);
       }
 
-      function initMap() {
-        if (map) return;
-        if (KAKAO_KEY && loadKakaoMapSdkGlobally(KAKAO_KEY)) return;
-
+      function initLeafletMap() {
+        if (map && !isKakaoMap) return;
+        const container = document.getElementById('map');
+        container.innerHTML = '';
         map = L.map('map').setView([37.5100, 127.0100], 12);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
           maxZoom: 18,
           attribution: '© OpenStreetMap'
         }).addTo(map);
         document.getElementById('map-engine-label').innerText = '📍 Leaflet 지도 (핀 클릭시 1:1 대여 문의)';
+        if (currentCarriers.length > 0) renderMapPins(currentCarriers);
+      }
+
+      function initMap() {
+        if (map) return;
+        if (getKakaoKey() && loadKakaoMapSdkGlobally(getKakaoKey())) return;
+        initLeafletMap();
       }
 
       async function executeSearch() {
@@ -777,6 +1056,12 @@
       }
 
       function renderMapPins(items) {
+        // The Kakao SDK <script> loads asynchronously (see loadKakaoMapSdkGlobally),
+        // so `map` may still be null here even when a Kakao key is configured and
+        // the SDK is mid-download. Skip rendering until a map instance actually
+        // exists; initKakaoMap() re-invokes renderMapPins once it's ready.
+        if (!map) return;
+
         if (isKakaoMap && window.kakao && window.kakao.maps) {
           markers.forEach(m => m.setMap(null));
           markers = [];
@@ -841,13 +1126,20 @@
           return;
         }
 
+        renderCardsInto(grid, items);
+      }
+
+      function renderCardsInto(grid, items) {
         grid.innerHTML = items.map(item => `
           <div class="carrier-card">
             <div class="carrier-img-wrap">
-              <img src="${item.photoUrl || 'https://images.unsplash.com/photo-1565026057447-b88e3f291029?auto=format&fit=crop&w=600&q=80'}" alt="${item.brandModel}" class="carrier-img" />
-              <span class="district-badge">📍 ${item.district}</span>
-              <span class="price-tag-badge">${item.dailyPrice.toLocaleString()}원/일</span>
+              <img src="${item.photoUrl || item.thumbnailUrl || 'https://images.unsplash.com/photo-1565026057447-b88e3f291029?auto=format&fit=crop&w=600&q=80'}" alt="${item.brandModel}" class="carrier-img" />
+              <span class="district-badge">📍 ${item.district || ''}</span>
+              <span class="price-tag-badge">${(item.dailyPrice || 0).toLocaleString()}원/일</span>
               <span class="status-pill">🟢 대여가능</span>
+              <button class="favorite-btn ${favoriteIds.has(item.id) ? 'active' : ''}" onclick="toggleFavorite('${item.id}')" title="찜하기">
+                ${favoriteIds.has(item.id) ? '❤️' : '🤍'}
+              </button>
             </div>
             <div class="carrier-body">
               <h3 class="carrier-title">${item.brandModel}</h3>
@@ -912,7 +1204,7 @@
         try {
           const res = await fetch(`${API_BASE}/contact-requests`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...authHeaders() },
             body: JSON.stringify({
               carrierId: selectedCarrier.id,
               renterName,
@@ -954,7 +1246,7 @@
       async function fetchContactRequests() {
         const listEl = document.getElementById('contact-requests-list');
         try {
-          const res = await fetch(`${API_BASE}/contact-requests`);
+          const res = await fetch(`${API_BASE}/contact-requests`, { headers: authHeaders() });
           const data = await res.json();
           const requests = data.requests || [];
 
@@ -982,6 +1274,7 @@
               <div style="display: flex; gap: 6px;">
                 ${r.status === 'pending' ? `<button class="btn-orange" style="font-size: 12px; padding: 6px 12px;" onclick="updateRequestStatus('${r.id}', 'accepted')">예약 확정하기</button>` : ''}
                 ${r.status === 'accepted' ? `<button class="btn-orange" style="font-size: 12px; padding: 6px 12px; background: var(--accent-green);" onclick="updateRequestStatus('${r.id}', 'completed')">반납 완료 처리</button>` : ''}
+                ${r.status === 'completed' ? `<button class="btn-orange" style="font-size: 12px; padding: 6px 12px; background: var(--accent-navy);" onclick="submitReview('${r.carrierId}', '${r.id}')">⭐ 후기 남기기</button>` : ''}
                 ${r.status !== 'cancelled' && r.status !== 'completed' ? `<button class="btn-orange" style="font-size: 12px; padding: 6px 12px; background: #e5e5ea; color: var(--text-primary);" onclick="updateRequestStatus('${r.id}', 'cancelled')">취소</button>` : ''}
               </div>
             </div>
@@ -991,11 +1284,39 @@
         }
       }
 
+      async function submitReview(carrierId, contactRequestId) {
+        const ratingStr = window.prompt('⭐ 별점을 입력해주세요 (1~5)', '5');
+        if (!ratingStr) return;
+        const rating = Number(ratingStr);
+        if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
+          alert('별점은 1~5 사이 숫자로 입력해주세요.');
+          return;
+        }
+        const comment = window.prompt('한줄 후기를 남겨주세요.', '친절하고 깨끗했어요!') || '';
+
+        try {
+          const res = await fetch(`${API_BASE}/carriers/${carrierId}/reviews`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders() },
+            body: JSON.stringify({ contactRequestId, rating, comment, reviewerName: currentUser?.nickname })
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            alert(data.message || '후기 등록에 실패했습니다.');
+            return;
+          }
+          logFunnelEvent('review_submitted', { carrierId, contactRequestId, rating });
+          alert('후기가 등록되었습니다. 감사합니다!');
+        } catch (err) {
+          alert('네트워크 오류로 후기 등록에 실패했습니다.');
+        }
+      }
+
       async function updateRequestStatus(id, newStatus) {
         try {
           await fetch(`${API_BASE}/contact-requests/${id}/status`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...authHeaders() },
             body: JSON.stringify({ status: newStatus })
           });
           logFunnelEvent('contact_request_status_update', { id, status: newStatus });
@@ -1006,6 +1327,11 @@
       }
 
       async function submitNewCarrier() {
+        if (!authToken) {
+          alert('캐리어를 등록하려면 먼저 로그인해주세요.');
+          openLoginModal();
+          return;
+        }
         const brandModel = document.getElementById('p-brand').value;
         const size = document.getElementById('p-size').value;
         const district = document.getElementById('p-district').value;
@@ -1018,7 +1344,7 @@
         try {
           const res = await fetch(`${API_BASE}/providers/carriers`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...authHeaders() },
             body: JSON.stringify({
               brandModel,
               size,
@@ -1056,7 +1382,8 @@
 
       // Initialize default search on load
       window.addEventListener('DOMContentLoaded', () => {
-        executeSearch();
+        renderAuthArea();
+        fetchFavoriteIds().then(() => executeSearch());
       });
     </script>
   </body>
