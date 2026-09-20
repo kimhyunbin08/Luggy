@@ -44,3 +44,18 @@ export function isValidDistrict(rawDistrict: string): boolean {
   const trimmed = rawDistrict.trim();
   return trimmed.length >= 2 && trimmed.length <= 30;
 }
+
+// Onboarding step 3: "1년에 여행/출장으로 캐리어를 사용하는 날은 며칠인가요?"
+// Must be a whole number of days within a single year - rejects negative
+// values (e.g. -1) and values that exceed the number of days in a year.
+export function isValidTravelDaysPerYear(days: number): boolean {
+  return Number.isInteger(days) && days >= 0 && days <= 365;
+}
+
+// Onboarding step 3: carrier purchase year. Must be a real, non-future year
+// no earlier than 1990 (modern hardshell/softshell carriers predate this by
+// a wide margin, so this is a generous but still sane lower bound).
+export function isValidCarrierPurchaseYear(year: number): boolean {
+  const currentYear = new Date().getFullYear();
+  return Number.isInteger(year) && year >= 1990 && year <= currentYear;
+}

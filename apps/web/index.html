@@ -904,7 +904,7 @@
               </div>
               <div class="form-group" style="flex:1;">
                 <label class="form-label">1일 대여료 (원)</label>
-                <input type="number" id="p-price" class="form-input" value="7900" />
+                <input type="number" id="p-price" class="form-input" value="7900" min="100" max="1000000" step="100" />
               </div>
             </div>
             <div class="form-group">
@@ -1121,7 +1121,7 @@
               </div>
               <div class="form-group">
                 <label class="form-label">구매 연도</label>
-                <input type="number" id="s-carrier-year" class="form-input" placeholder="예: 2022" />
+                <input type="number" id="s-carrier-year" class="form-input" placeholder="예: 2022" min="1990" step="1" />
               </div>
               <div class="form-group">
                 <label class="form-label">사진 URL (선택)</label>
@@ -1130,7 +1130,7 @@
             </div>
             <div class="form-group">
               <label class="form-label">1년에 여행/출장으로 캐리어를 사용하는 날은 며칠 정도인가요?</label>
-              <input type="number" id="s-travel-days" class="form-input" placeholder="예: 10" />
+              <input type="number" id="s-travel-days" class="form-input" placeholder="예: 10" min="0" max="365" step="1" />
             </div>
             <div class="form-group">
               <label class="form-label">캐리어가 집에 있을 때 공간 부족 문제를 겪고 계신가요?</label>
@@ -1443,6 +1443,25 @@
             errorBox.innerText = '보유중인 캐리어의 모델명을 입력해주세요.';
             errorBox.style.display = 'block';
             return;
+          }
+          const yearRaw = document.getElementById('s-carrier-year').value;
+          if (signupOwnsCarrier && yearRaw) {
+            const year = Number(yearRaw);
+            const currentYear = new Date().getFullYear();
+            if (!Number.isInteger(year) || year < 1990 || year > currentYear) {
+              errorBox.innerText = `캐리어 구매 연도는 1990년부터 ${currentYear}년 사이로 입력해주세요.`;
+              errorBox.style.display = 'block';
+              return;
+            }
+          }
+          const travelDaysRaw = document.getElementById('s-travel-days').value;
+          if (travelDaysRaw) {
+            const travelDays = Number(travelDaysRaw);
+            if (!Number.isInteger(travelDays) || travelDays < 0 || travelDays > 365) {
+              errorBox.innerText = '연간 여행 일수는 0~365 사이의 정수로 입력해주세요.';
+              errorBox.style.display = 'block';
+              return;
+            }
           }
         } else if (signupStep === SIGNUP_TOTAL_STEPS) {
           submitAuth();
@@ -1969,6 +1988,11 @@
         const endDate = document.getElementById('m-end-date').value;
         const message = document.getElementById('m-message').value;
 
+        if (startDate && endDate && new Date(endDate) < new Date(startDate)) {
+          alert('반납일은 대여 시작일보다 빠를 수 없습니다. 날짜를 다시 확인해주세요.');
+          return;
+        }
+
         try {
           const res = await fetch(`${API_BASE}/contact-requests`, {
             method: 'POST',
@@ -1982,6 +2006,11 @@
               message
             })
           });
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            alert(errData.message || '문의 요청에 실패했습니다. 입력 내용을 확인해주세요.');
+            return;
+          }
           const data = await res.json();
 
           logFunnelEvent('contact_request_sent', { carrierId: selectedCarrier.id, requestId: data.contactRequest?.id });
@@ -2198,6 +2227,11 @@
         const photoUrl = document.getElementById('p-photo').value;
         const description = document.getElementById('p-desc').value;
 
+        if (!Number.isFinite(dailyPrice) || dailyPrice <= 0) {
+          alert('1일 대여료는 0보다 큰 금액으로 입력해주세요.');
+          return;
+        }
+
         try {
           const res = await fetch(`${API_BASE}/providers/carriers`, {
             method: 'POST',
@@ -2213,14 +2247,18 @@
               description
             })
           });
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            alert(errData.message || '캐리어 등록에 실패했습니다. 입력 내용을 확인해주세요.');
+            return;
+          }
           const data = await res.json();
 
           logFunnelEvent('carrier_registered', { carrierId: data.id });
           alert(`🎉 [${district}] ${brandModel} 캐리어가 정상 등록되었습니다!\n내 캐리어 관리 탭에서 확인할 수 있습니다.`);
           switchSubTab('rental', 'manage');
         } catch (err) {
-          alert('캐리어 등록 완료! 내 캐리어 관리 탭으로 이동합니다.');
-          switchSubTab('rental', 'manage');
+          alert('네트워크 오류로 캐리어 등록에 실패했습니다. 잠시 후 다시 시도해주세요.');
         }
       }
 
@@ -2258,6 +2296,8 @@
         renderLocationBadge();
         fetchFavoriteIds().then(() => executeSearch());
         renderHomeDashboard();
+        const carrierYearInput = document.getElementById('s-carrier-year');
+        if (carrierYearInput) carrierYearInput.max = String(new Date().getFullYear());
       });
     </script>
   </body>

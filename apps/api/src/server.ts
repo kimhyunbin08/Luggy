@@ -2,7 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { calculateRefundAmount, calculateSettlement, calculateTotalPrice, validateMinimumRentalDays } from './domain/calculators.js';
 import { CarrierSize, defaultPolicy } from './domain/policy.js';
-import { generateSessionToken, isValidDistrict, isValidName, isValidNickname, isValidPhone, normalizePhone } from './domain/auth.js';
+import { generateSessionToken, isValidCarrierPurchaseYear, isValidDistrict, isValidName, isValidNickname, isValidPhone, isValidTravelDaysPerYear, normalizePhone } from './domain/auth.js';
 
 type BookingStatus =
   | 'requested'
@@ -190,6 +190,12 @@ export function createApp() {
     }
     if (parsed.ownsCarrier && !parsed.carrierModel?.trim()) {
       return res.status(400).json({ message: '보유중인 캐리어의 모델명을 입력해주세요.' });
+    }
+    if (parsed.ownsCarrier && parsed.carrierPurchaseYear !== undefined && !isValidCarrierPurchaseYear(parsed.carrierPurchaseYear)) {
+      return res.status(400).json({ message: `캐리어 구매 연도는 1990년부터 ${new Date().getFullYear()}년 사이로 입력해주세요.` });
+    }
+    if (parsed.travelDaysPerYear !== undefined && !isValidTravelDaysPerYear(parsed.travelDaysPerYear)) {
+      return res.status(400).json({ message: '연간 여행 일수는 0~365 사이의 정수로 입력해주세요.' });
     }
     // Mandatory legal consent: signup cannot proceed without explicit agreement
     // to both the terms of service and the privacy policy (collecting name,
@@ -430,6 +436,21 @@ export function createApp() {
     const carrier = carriers.find((c) => c.id === parsed.carrierId);
     if (!carrier) return res.status(404).json({ message: 'carrier not found' });
 
+    // Sanity-check the requested rental period: a return date before the
+    // pickup date makes no sense and must be rejected rather than silently
+    // accepted (matches the 최소 대여 기간 rule used by the legacy /bookings
+    // endpoint, applied here to the actual C2C contact-request flow).
+    if (parsed.startDate && parsed.endDate) {
+      const start = new Date(parsed.startDate);
+      const end = new Date(parsed.endDate);
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        return res.status(400).json({ message: '대여 시작일/종료일 형식이 올바르지 않습니다.' });
+      }
+      if (end < start) {
+        return res.status(400).json({ message: '반납일은 대여 시작일보다 빠를 수 없습니다.' });
+      }
+    }
+
     const id = `req_${contactRequests.length + 1}`;
     const senderName = maybeUser?.nickname || parsed.renterName || '대여자';
     const newReq: ContactRequest = {
@@ -586,22 +607,52 @@ export function createApp() {
 
   app.post('/providers/carriers', (req: Request, res: Response) => {
     const maybeUser = authenticate(req);
-    const id = `c${carriers.length + 1}`;
-    const size = (req.body?.size as CarrierSize) || 'carry_on';
-    const brandModel = req.body?.brandModel || (size === 'carry_on' ? '이웃 등록 기내용 캐리어' : '이웃 등록 중형 캐리어');
-    const district = req.body?.district || '강남구 역삼동';
-    const dailyPrice = Number(req.body?.dailyPrice) || (size === 'carry_on' ? 7900 : 11900);
-    const ownerName = req.body?.ownerName || maybeUser?.nickname || '새이웃';
-    const ownerContact = req.body?.ownerContact || maybeUser?.phone || '010-1111-2222';
-    const description = req.body?.description || '소유자가 직접 등록한 대여 가능 캐리어입니다.';
-    const lat = Number(req.body?.lat) || 37.5000;
-    const lng = Number(req.body?.lng) || 127.0300;
+    const schema = z.object({
+      size: z.enum(['carry_on', 'medium']).optional(),
+      brandModel: z.string().optional(),
+      district: z.string().optional(),
+      dailyPrice: z.number().optional(),
+      ownerName: z.string().optional(),
+      ownerContact: z.string().optional(),
+      description: z.string().optional(),
+      lat: z.number().optional(),
+      lng: z.number().optional(),
+      photoUrl: z.string().optional()
+    });
+    const parsed = schema.parse(req.body);
+
+    const size: CarrierSize = parsed.size || 'carry_on';
+    const brandModel = parsed.brandModel?.trim() || (size === 'carry_on' ? '이웃 등록 기내용 캐리어' : '이웃 등록 중형 캐리어');
+    const district = parsed.district?.trim() || '강남구 역삼동';
+    // A listed daily rental price must be a real, positive amount - reject
+    // zero/negative/non-finite values instead of silently falling back, which
+    // would otherwise let a malformed or malicious request list a carrier for
+    // a nonsensical (e.g. negative) price.
+    if (parsed.dailyPrice !== undefined && (!Number.isFinite(parsed.dailyPrice) || parsed.dailyPrice <= 0)) {
+      return res.status(400).json({ message: '1일 대여료는 0보다 큰 금액으로 입력해주세요.' });
+    }
+    if (parsed.dailyPrice !== undefined && parsed.dailyPrice > 1_000_000) {
+      return res.status(400).json({ message: '1일 대여료는 1,000,000원을 초과할 수 없습니다.' });
+    }
+    const dailyPrice = parsed.dailyPrice ?? (size === 'carry_on' ? 7900 : 11900);
+    if (parsed.lat !== undefined && !Number.isFinite(parsed.lat)) {
+      return res.status(400).json({ message: '위치(위도) 값이 올바르지 않습니다.' });
+    }
+    if (parsed.lng !== undefined && !Number.isFinite(parsed.lng)) {
+      return res.status(400).json({ message: '위치(경도) 값이 올바르지 않습니다.' });
+    }
+    const ownerName = parsed.ownerName?.trim() || maybeUser?.nickname || '새이웃';
+    const ownerContact = parsed.ownerContact?.trim() || maybeUser?.phone || '010-1111-2222';
+    const description = parsed.description?.trim() || '소유자가 직접 등록한 대여 가능 캐리어입니다.';
+    const lat = parsed.lat ?? 37.5000;
+    const lng = parsed.lng ?? 127.0300;
     const photoUrl =
-      req.body?.photoUrl ||
+      parsed.photoUrl?.trim() ||
       (size === 'carry_on'
         ? 'https://images.unsplash.com/photo-1565026057447-b88e3f291029?auto=format&fit=crop&w=600&q=80'
         : 'https://images.unsplash.com/photo-1581553680321-4fffae59febd?auto=format&fit=crop&w=600&q=80');
 
+    const id = `c${carriers.length + 1}`;
     const newCarrier: CarrierItem = {
       id,
       ownerId: maybeUser?.id,
@@ -682,6 +733,24 @@ export function createApp() {
     if (parsed.status === 'in_transit') booking.status = 'outbound_in_transit';
     if (parsed.status === 'arrived') booking.status = 'in_use';
     res.json({ ok: true });
+  });
+
+  // Global error handler: without this, a malformed request body (e.g. a
+  // schema.parse() throwing a ZodError) would fall through to Express's
+  // default handler, which returns a raw 500 with an internal stack trace -
+  // an information-leak and a confusing "server error" for what is really a
+  // client input problem. Route all validation errors to a clean 400, and
+  // everything else to a generic 500 with no internal details exposed.
+  app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({
+        message: '요청 형식이 올바르지 않습니다.',
+        issues: err.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message }))
+      });
+    }
+    // eslint-disable-next-line no-console
+    console.error(err);
+    res.status(500).json({ message: '서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.' });
   });
 
   return app;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateSessionToken, isValidName, isValidNickname, isValidPhone, normalizePhone } from '../src/domain/auth.js';
+import { generateSessionToken, isValidCarrierPurchaseYear, isValidName, isValidNickname, isValidPhone, isValidTravelDaysPerYear, normalizePhone } from '../src/domain/auth.js';
 
 describe('auth: normalizePhone', () => {
   it('formats an 11-digit phone number into 010-XXXX-XXXX', () => {
@@ -49,6 +49,33 @@ describe('auth: isValidName', () => {
     expect(isValidName('a')).toBe(false);
     expect(isValidName('a'.repeat(21))).toBe(false);
     expect(isValidName('   ')).toBe(false);
+  });
+});
+
+describe('auth: isValidTravelDaysPerYear', () => {
+  it('accepts whole-day counts within a single year', () => {
+    expect(isValidTravelDaysPerYear(0)).toBe(true);
+    expect(isValidTravelDaysPerYear(30)).toBe(true);
+    expect(isValidTravelDaysPerYear(365)).toBe(true);
+  });
+
+  it('rejects negative, non-integer, or out-of-range day counts', () => {
+    expect(isValidTravelDaysPerYear(-1)).toBe(false);
+    expect(isValidTravelDaysPerYear(366)).toBe(false);
+    expect(isValidTravelDaysPerYear(1.5)).toBe(false);
+  });
+});
+
+describe('auth: isValidCarrierPurchaseYear', () => {
+  it('accepts a real, non-future year no earlier than 1990', () => {
+    expect(isValidCarrierPurchaseYear(1990)).toBe(true);
+    expect(isValidCarrierPurchaseYear(new Date().getFullYear())).toBe(true);
+  });
+
+  it('rejects years before 1990, future years, or non-integers', () => {
+    expect(isValidCarrierPurchaseYear(1989)).toBe(false);
+    expect(isValidCarrierPurchaseYear(new Date().getFullYear() + 1)).toBe(false);
+    expect(isValidCarrierPurchaseYear(2020.5)).toBe(false);
   });
 });
 

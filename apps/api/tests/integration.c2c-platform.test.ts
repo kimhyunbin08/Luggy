@@ -37,6 +37,22 @@ describe('integration: auth (signup/login/me)', () => {
     expect(res.body.user.nickname).toBe('역삼동철수');
   });
 
+  it('rejects signup with a negative or out-of-range travel-days-per-year value', async () => {
+    const negative = await request(app).post('/auth/signup').send({ name: '테스트이름', nickname: '여행일수음수', phone: '010-1111-6666', district: '강남구 역삼동', ownsCarrier: false, travelDaysPerYear: -1, agreedToTerms: true, agreedToPrivacy: true });
+    expect(negative.status).toBe(400);
+
+    const tooMany = await request(app).post('/auth/signup').send({ name: '테스트이름', nickname: '여행일수초과', phone: '010-1111-6667', district: '강남구 역삼동', ownsCarrier: false, travelDaysPerYear: 400, agreedToTerms: true, agreedToPrivacy: true });
+    expect(tooMany.status).toBe(400);
+  });
+
+  it('rejects signup with an invalid carrier purchase year', async () => {
+    const res = await request(app).post('/auth/signup').send({
+      name: '테스트이름', nickname: '구매연도오류', phone: '010-1111-6668', district: '강남구 역삼동',
+      ownsCarrier: true, carrierModel: '삼성 캐리어', carrierPurchaseYear: 1899, agreedToTerms: true, agreedToPrivacy: true
+    });
+    expect(res.status).toBe(400);
+  });
+
   it('rejects duplicate signup for the same phone number', async () => {
     await request(app).post('/auth/signup').send({ name: '테스트이름', nickname: '중복테스트', phone: '010-2222-3333', district: '강남구 역삼동', ownsCarrier: false, agreedToTerms: true, agreedToPrivacy: true });
     const dup = await request(app).post('/auth/signup').send({ name: '테스트이름', nickname: '중복테스트2', phone: '010-2222-3333', district: '강남구 역삼동', ownsCarrier: false, agreedToTerms: true, agreedToPrivacy: true });
@@ -174,6 +190,25 @@ describe('integration: owner-scoped carrier registration + contact requests', ()
     const received = await request(app).get('/contact-requests').set('Authorization', `Bearer ${token}`);
     expect(received.status).toBe(200);
     expect(received.body.requests.some((r: { carrierId: string }) => r.carrierId === carrierId)).toBe(true);
+  });
+
+  it('rejects registering a carrier with a zero or negative daily price', async () => {
+    const negative = await request(app)
+      .post('/providers/carriers')
+      .send({ size: 'carry_on', brandModel: '음수가격테스트', district: '강남구', dailyPrice: -1000 });
+    expect(negative.status).toBe(400);
+
+    const zero = await request(app)
+      .post('/providers/carriers')
+      .send({ size: 'carry_on', brandModel: '영원가격테스트', district: '강남구', dailyPrice: 0 });
+    expect(zero.status).toBe(400);
+  });
+
+  it('rejects a contact request whose end date is before its start date', async () => {
+    const res = await request(app)
+      .post('/contact-requests')
+      .send({ carrierId: 'c1', message: '날짜 역전 테스트', startDate: '2026-08-12', endDate: '2026-08-10' });
+    expect(res.status).toBe(400);
   });
 });
 

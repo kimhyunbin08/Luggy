@@ -353,3 +353,57 @@ type User = {
 #### E2E 테스트 (수동/브라우저 캔버스로 검증)
 1. 가입 1단계에서 이름 또는 닉네임 중 하나라도 비워두면 다음 단계 진행이 차단되는지 확인
 2. 캐리어 카드의 "🧭 경로 안내" 버튼 클릭 시 `window.open`으로 카카오맵 길찾기 URL이 생성되는지 확인(위치 권한 거부 시 목적지 전용 링크로 대체되는지 포함)
+
+## 20. 상식 범위(Common-Sense Bounds) 검증 강화 API/구현 (버그 수정)
+`apps/api/src/domain/auth.ts`, `apps/api/src/server.ts`, `apps/web/index.html`에 구현되어 있다.
+
+### 20.1 신규 검증 함수 (`apps/api/src/domain/auth.ts`)
+```ts
+export function isValidTravelDaysPerYear(days: number): boolean {
+  return Number.isInteger(days) && days >= 0 && days <= 365;
+}
+export function isValidCarrierPurchaseYear(year: number): boolean {
+  const currentYear = new Date().getFullYear();
+  return Number.isInteger(year) && year >= 1990 && year <= currentYear;
+}
+```
+
+### 20.2 `POST /auth/signup` 변경 (`apps/api/src/server.ts`)
+- `travelDaysPerYear`가 제공된 경우 `isValidTravelDaysPerYear` 검증 실패 시 400: "연간 여행 일수는 0~365 사이의 정수로 입력해주세요."
+- `ownsCarrier`가 true이고 `carrierPurchaseYear`가 제공된 경우 `isValidCarrierPurchaseYear` 검증 실패 시 400: "캐리어 구매 연도는 1990년부터 {현재연도}년 사이로 입력해주세요."
+
+### 20.3 `POST /providers/carriers` 재작성
+- 기존 `Number(req.body?.dailyPrice) || fallback` 방식(음수도 truthy라 통과되던 버그)을 제거하고, zod 스키마로 입력을 우선 파싱한 뒤 명시적 범위 검증으로 교체:
+  - `dailyPrice`가 제공된 경우 `Number.isFinite(dailyPrice) && dailyPrice > 0` 검증, 1,000,000원 상한도 함께 검증. 실패 시 400.
+  - `lat`/`lng`가 제공된 경우 `Number.isFinite()` 검증. 실패 시 400.
+
+### 20.4 `POST /contact-requests` 날짜 순서 검증
+- `startDate`/`endDate`가 모두 제공된 경우 `new Date(endDate) < new Date(startDate)`이면 400: "반납일은 대여 시작일보다 빠를 수 없습니다."
+- 날짜 문자열이 파싱 불가능한 경우도 400으로 처리한다.
+
+### 20.5 전역 오류 처리 미들웨어 (`createApp()`)
+- `app.use((err, req, res, next) => ...)`를 `return app;` 직전에 추가.
+- `err instanceof z.ZodError`인 경우 400과 함께 각 필드별 오류 목록을 반환.
+- 그 외 예외는 스택 트레이스를 노출하지 않고 500 + 일반 오류 메시지만 반환.
+
+### 20.6 프런트엔드 변경 (`apps/web/index.html`)
+- `#s-travel-days`(`min="0" max="365" step="1"`), `#s-carrier-year`(`min="1990"`, `max`는 `DOMContentLoaded`에서 현재 연도로 동적 설정), `#p-price`(`min="100" max="1000000" step="100"`) 에 HTML5 제약 속성 추가.
+- `signupWizardNext()` 3단계 검증에 여행 일수/구매 연도 범위 체크 추가(위반 시 다음 단계 진행 차단, 오류 메시지 표시).
+- `submitContactRequest()`에 클라이언트 단 날짜 순서 검증(`endDate < startDate` 시 제출 차단) 및 서버 응답 `res.ok` 확인 로직 추가(실패 시 서버 메시지를 `alert`로 표시, 성공 화면으로 넘어가지 않음).
+- `submitNewCarrier()`에 클라이언트 단 `dailyPrice > 0` 검증 및 `res.ok` 확인 로직 추가.
+
+### 20.7 테스트 시나리오 (버그 수정)
+#### 단위 테스트 (`apps/api/tests/unit.auth.test.ts`)
+1. `isValidTravelDaysPerYear`: 0/30/365 허용, -1/366/1.5 거부
+2. `isValidCarrierPurchaseYear`: 1990/현재연도 허용, 1989/현재연도+1/소수 거부
+
+#### 통합 테스트 (`apps/api/tests/integration.c2c-platform.test.ts`)
+1. `travelDaysPerYear`가 -1 또는 400인 경우 가입 400 차단
+2. `carrierPurchaseYear`가 1899인 경우 가입 400 차단
+3. `dailyPrice`가 -1000 또는 0인 경우 캐리어 등록 400 차단
+4. `endDate`가 `startDate`보다 빠른 경우 문의 요청 400 차단
+
+#### E2E 테스트 (수동/브라우저 캔버스로 검증)
+1. 가입 위저드 3단계에서 여행 일수에 음수 입력 시 다음 단계로 진행되지 않는지 확인
+2. 문의 모달에서 반납일을 시작일보다 이르게 설정 시 제출이 차단되고 안내 메시지가 뜨는지 확인
+3. 매물 등록 폼에서 대여료를 0 이하로 입력 시 제출이 차단되는지 확인
