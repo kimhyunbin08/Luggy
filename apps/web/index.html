@@ -257,6 +257,30 @@
 
       .btn-orange:hover { background: var(--accent-orange-hover); }
 
+      .btn-outline {
+        background: #ffffff;
+        color: var(--accent-orange);
+        border: 1.5px solid var(--accent-orange);
+        padding: 10px 18px;
+        font-size: 13px;
+        font-weight: 600;
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        transition: background-color 0.2s ease;
+        display: inline-flex;
+        justify-content: center;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .btn-outline:hover { background: #fff5ec; }
+
+      .carrier-action-row {
+        display: flex;
+        gap: 8px;
+        margin-top: auto;
+      }
+
       /* Map Container */
       .map-wrapper {
         background: var(--card-bg);
@@ -979,6 +1003,9 @@
       <div class="modal-card">
         <h2 class="modal-title" id="modal-carrier-title">소유자에게 1:1 대여 문의</h2>
         <div id="modal-carrier-info" style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px; background: #fafafa; padding: 12px; border-radius: var(--radius-sm); border: 1px solid rgba(0,0,0,0.06);"></div>
+        <button type="button" class="btn-outline" id="modal-directions-btn" style="width: 100%; margin-bottom: 12px;" onclick="if (selectedCarrier) openDirectionsTo(selectedCarrier.id)">
+          🧭 내 위치에서 경로 안내 받기
+        </button>
 
         <div class="price-calc-box" id="modal-price-calc">
           <div class="price-calc-row">
@@ -1051,11 +1078,17 @@
         <div id="login-step-signup" style="display: flex; flex-direction: column; gap: 12px;">
           <div class="signup-progress" id="signup-progress">1 / 4 · 기본 정보</div>
 
-          <!-- Step 1: name/phone -->
+          <!-- Step 1: name/nickname/phone -->
           <div class="signup-step" id="signup-step-1">
             <div class="form-group">
-              <label class="form-label">닉네임</label>
+              <label class="form-label">이름 (실명)</label>
+              <input type="text" id="s-name" class="form-input" placeholder="예: 김철수" />
+              <div class="form-hint">본인 확인 및 안전한 직거래를 위한 실명이며, 다른 이웃에게 공개되지 않습니다.</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">닉네임(유저네임)</label>
               <input type="text" id="s-nickname" class="form-input" placeholder="예: 역삼동이웃" />
+              <div class="form-hint">매물/채팅/후기 등에 공개적으로 표시되는 이름입니다.</div>
             </div>
             <div class="form-group">
               <label class="form-label">휴대폰 번호</label>
@@ -1390,10 +1423,11 @@
         errorBox.style.display = 'none';
 
         if (signupStep === 1) {
+          const name = document.getElementById('s-name').value.trim();
           const nickname = document.getElementById('s-nickname').value.trim();
           const phone = document.getElementById('s-phone').value.trim();
-          if (!nickname || !phone) {
-            errorBox.innerText = '닉네임과 휴대폰 번호를 모두 입력해주세요.';
+          if (!name || !nickname || !phone) {
+            errorBox.innerText = '이름, 닉네임, 휴대폰 번호를 모두 입력해주세요.';
             errorBox.style.display = 'block';
             return;
           }
@@ -1436,6 +1470,7 @@
           }
           endpoint = '/auth/signup';
           body = {
+            name: document.getElementById('s-name').value.trim(),
             nickname: document.getElementById('s-nickname').value.trim(),
             phone: document.getElementById('s-phone').value.trim(),
             district: document.getElementById('s-district').value.trim(),
@@ -1773,7 +1808,7 @@
 
             const marker = new kakao.maps.Marker({ position: loc, map: map });
             const infowindow = new kakao.maps.InfoWindow({
-              content: `<div style="padding:8px;font-size:12px;color:#1d1d1f;min-width:140px;"><strong>${item.brandModel}</strong><br/>📍 ${item.district}<br/><span style="color:#ff6f0f;font-weight:bold;">${item.dailyPrice.toLocaleString()}원/일</span></div>`
+              content: `<div style="padding:8px;font-size:12px;color:#1d1d1f;min-width:150px;"><strong>${item.brandModel}</strong><br/>📍 ${item.district}<br/><span style="color:#ff6f0f;font-weight:bold;">${item.dailyPrice.toLocaleString()}원/일</span><br/><a href="#" onclick="openDirectionsTo('${item.id}'); return false;" style="color:#007aff;">🧭 경로 안내</a></div>`
             });
             kakao.maps.event.addListener(marker, 'click', () => {
               infowindow.open(map, marker);
@@ -1802,6 +1837,7 @@
               <strong>${item.brandModel}</strong><br/>
               📍 ${item.district}<br/>
               <span style="color: #ff6f0f; font-weight: 800;">${item.dailyPrice.toLocaleString()}원/일</span><br/>
+              <button onclick="openDirectionsTo('${item.id}')" style="margin-top: 6px; background: #ffffff; color: #ff6f0f; border: 1.5px solid #ff6f0f; padding: 5px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer;">🧭 경로 안내</button>
               <button onclick="openContactModal('${item.id}')" style="margin-top: 6px; background: #ff6f0f; color: white; border: none; padding: 5px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer;">💬 1:1 대여 문의</button>
             </div>
           `);
@@ -1846,12 +1882,46 @@
                 <span>★ ${item.rating || 5.0} (${item.reviews || 0})</span>
               </div>
               <p class="carrier-desc">${item.description || '소유자와 직접 1:1 상의하여 일정을 정하세요.'}</p>
-              <button class="btn-orange" style="margin-top: auto; width: 100%;" onclick="openContactModal('${item.id}')">
-                💬 1:1 대여 문의하기
-              </button>
+              <div class="carrier-action-row">
+                <button class="btn-outline" onclick="openDirectionsTo('${item.id}')" title="내 위치에서 경로 안내">
+                  🧭 경로 안내
+                </button>
+                <button class="btn-orange" style="flex: 1;" onclick="openContactModal('${item.id}')">
+                  💬 1:1 대여 문의하기
+                </button>
+              </div>
             </div>
           </div>
         `).join('');
+      }
+
+      // Opens a Kakao Map "길찾기"(directions) link from the user's current
+      // location (via browser geolocation) to the carrier's location. Falls
+      // back to a destination-only link if geolocation is denied/unavailable.
+      // This uses Kakao's public web link scheme and needs no API key/auth.
+      function openDirectionsTo(carrierId) {
+        const item = currentCarriers.find(c => c.id === carrierId);
+        if (!item || !item.lat || !item.lng) return;
+        logFunnelEvent('directions_open', { carrierId });
+
+        const destName = encodeURIComponent(item.district || item.brandModel || '대여 위치');
+        const toParam = `${destName},${item.lat},${item.lng}`;
+        const openUrl = (url) => window.open(url, '_blank', 'noopener');
+
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              const fromParam = `${encodeURIComponent('내 위치')},${pos.coords.latitude},${pos.coords.longitude}`;
+              openUrl(`https://map.kakao.com/link/from/${fromParam}/to/${toParam}`);
+            },
+            () => {
+              openUrl(`https://map.kakao.com/link/to/${toParam}`);
+            },
+            { timeout: 4000 }
+          );
+        } else {
+          openUrl(`https://map.kakao.com/link/to/${toParam}`);
+        }
       }
 
       function updateModalPriceCalc() {

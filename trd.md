@@ -315,3 +315,41 @@ type User = {
 3. 3단계에서 캐리어 보유 "있음" 선택 후 모델명 미입력 시 진행 차단, 입력 후 4단계 진행 확인
 4. 4단계에서 동의 없이 제출 시 차단 메시지 노출 확인, "전체 동의" 체크 후 제출 성공 확인
 5. 가입 성공 후 헤더 배지가 "📍 강남구 역삼동 근처 이웃과 거래 중" 형태로 갱신되는지 확인, 로그아웃 후 기본 태그라인 복귀 확인
+
+## 19. 실명/닉네임 분리 및 지도 경로 안내 API/구현 (신규 기능)
+`apps/api/src/domain/auth.ts`, `apps/api/src/server.ts`, `apps/web/index.html`에 구현되어 있다.
+
+### 19.1 `User` 타입 확장
+```
+type User = {
+  id, name /* 실명, 비공개 */, nickname /* 공개 유저네임 */, phone, createdAt,
+  district, ownsCarrier, ...
+}
+```
+- `isValidName(name)` (`apps/api/src/domain/auth.ts`): 2~20자 trimmed 길이 검증, `isValidNickname`과 동일한 규칙을 별도 함수로 분리해 각각 독립적으로 검증한다.
+
+### 19.2 `POST /auth/signup` 변경
+- 요청 바디에 `name` 필드 추가(필수). `isValidName` 실패 시 400: "이름은 2~20자로 입력해주세요."
+- 응답 `user` 객체에 `name`과 `nickname`이 각각 별도 필드로 포함된다.
+
+### 19.3 프런트엔드 위저드 변경 (`apps/web/index.html`)
+- `#signup-step-1`에 `#s-name`(이름) 입력 필드 추가, `#s-nickname`(닉네임) 필드는 그대로 유지.
+- `signupWizardNext()`의 1단계 검증이 이름/닉네임/휴대폰 번호 3개 모두를 확인하도록 갱신.
+- `submitAuth()`가 `/auth/signup` 요청 바디에 `name` 필드를 포함해 전송.
+
+### 19.4 지도 경로 안내 (`openDirectionsTo(carrierId)`)
+- 카카오맵의 공개 웹 링크 스킴(`https://map.kakao.com/link/...`)을 사용하며, 별도 API 키/인증이 필요 없다.
+- `navigator.geolocation.getCurrentPosition()`으로 현재 위치를 조회해 성공 시 `https://map.kakao.com/link/from/{내위치},{lat},{lng}/to/{목적지},{lat},{lng}` 링크를, 위치 조회 실패/미지원 시 `https://map.kakao.com/link/to/{목적지},{lat},{lng}` 링크를 새 탭으로 연다.
+- 캐리어 카드(`renderCardsInto`), Kakao/Leaflet 지도 핀 팝업(`renderMapPins`), 1:1 문의 모달(`#contact-modal`)에 각각 "🧭 경로 안내" 버튼을 배치했다.
+
+### 19.5 테스트 시나리오 (신규 기능)
+#### 단위 테스트 (`apps/api/src/domain/auth.ts`)
+1. `isValidName`: 빈 문자열/공백/2자 미만/20자 초과 거부, 정상 이름 허용
+
+#### 통합 테스트 (`apps/api/tests/integration.c2c-platform.test.ts`)
+1. 이름이 너무 짧은 경우(`'ㄱ'`) 400 차단 확인
+2. 정상 가입 시 응답의 `name`/`nickname`이 서로 다른 값으로 저장되는지 확인
+
+#### E2E 테스트 (수동/브라우저 캔버스로 검증)
+1. 가입 1단계에서 이름 또는 닉네임 중 하나라도 비워두면 다음 단계 진행이 차단되는지 확인
+2. 캐리어 카드의 "🧭 경로 안내" 버튼 클릭 시 `window.open`으로 카카오맵 길찾기 URL이 생성되는지 확인(위치 권한 거부 시 목적지 전용 링크로 대체되는지 포함)

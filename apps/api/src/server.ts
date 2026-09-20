@@ -2,7 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { calculateRefundAmount, calculateSettlement, calculateTotalPrice, validateMinimumRentalDays } from './domain/calculators.js';
 import { CarrierSize, defaultPolicy } from './domain/policy.js';
-import { generateSessionToken, isValidDistrict, isValidNickname, isValidPhone, normalizePhone } from './domain/auth.js';
+import { generateSessionToken, isValidDistrict, isValidName, isValidNickname, isValidPhone, normalizePhone } from './domain/auth.js';
 
 type BookingStatus =
   | 'requested'
@@ -77,6 +77,7 @@ type ContactRequest = {
 
 type User = {
   id: string;
+  name: string; // real name, private (not shown publicly; nickname is used instead)
   nickname: string;
   phone: string;
   createdAt: string;
@@ -161,6 +162,7 @@ export function createApp() {
 
   app.post('/auth/signup', (req: Request, res: Response) => {
     const schema = z.object({
+      name: z.string(),
       nickname: z.string(),
       phone: z.string(),
       district: z.string(),
@@ -174,6 +176,9 @@ export function createApp() {
       agreedToPrivacy: z.boolean().optional()
     });
     const parsed = schema.parse(req.body);
+    if (!isValidName(parsed.name)) {
+      return res.status(400).json({ message: '이름은 2~20자로 입력해주세요.' });
+    }
     if (!isValidNickname(parsed.nickname)) {
       return res.status(400).json({ message: '닉네임은 2~20자로 입력해주세요.' });
     }
@@ -199,6 +204,7 @@ export function createApp() {
     const now = new Date().toISOString();
     const user: User = {
       id: `u${users.length + 1}`,
+      name: parsed.name.trim(),
       nickname: parsed.nickname.trim(),
       phone,
       createdAt: now,

@@ -25,6 +25,13 @@ export function isValidNickname(nickname: string): boolean {
   return trimmed.length >= 2 && trimmed.length <= 20;
 }
 
+// Real name, collected separately from the public-facing nickname/username
+// used in listings, chat, and reviews. Same length bounds as nickname.
+export function isValidName(name: string): boolean {
+  const trimmed = name.trim();
+  return trimmed.length >= 2 && trimmed.length <= 20;
+}
+
 export function generateSessionToken(): string {
   // Simple opaque token; sufficient for an in-memory MVP session store.
   return `sess_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;

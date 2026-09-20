@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateSessionToken, isValidNickname, isValidPhone, normalizePhone } from '../src/domain/auth.js';
+import { generateSessionToken, isValidName, isValidNickname, isValidPhone, normalizePhone } from '../src/domain/auth.js';
 
 describe('auth: normalizePhone', () => {
   it('formats an 11-digit phone number into 010-XXXX-XXXX', () => {
@@ -37,6 +37,18 @@ describe('auth: isValidNickname', () => {
     expect(isValidNickname('a')).toBe(false);
     expect(isValidNickname('a'.repeat(21))).toBe(false);
     expect(isValidNickname('   ')).toBe(false);
+  });
+});
+
+describe('auth: isValidName', () => {
+  it('accepts real names between 2 and 20 characters', () => {
+    expect(isValidName('김철수')).toBe(true);
+  });
+
+  it('rejects names that are too short or too long', () => {
+    expect(isValidName('a')).toBe(false);
+    expect(isValidName('a'.repeat(21))).toBe(false);
+    expect(isValidName('   ')).toBe(false);
   });
 });
 
