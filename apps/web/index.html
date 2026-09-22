@@ -966,13 +966,17 @@
               </div>
             </div>
             <div class="form-group">
-              <label class="form-label">거래 가능 동네 / 구</label>
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px;">
+                <label class="form-label" style="margin-bottom: 0;">거래 가능 동네 / 구</label>
+                <button type="button" class="btn-outline" style="padding: 7px 10px; font-size: 12px;" onclick="fillProviderDistrictFromProfile()">내 동네 자동입력</button>
+              </div>
               <div style="display: flex; gap: 6px;">
                 <select id="p-sido" class="form-select" style="flex:1;" onchange="onDistrictSidoChange('p')"></select>
                 <select id="p-sigungu" class="form-select" style="flex:1;" onchange="onDistrictSigunguChange('p')" disabled></select>
                 <select id="p-dong" class="form-select" style="flex:1;" onchange="onDistrictDongChange('p')" disabled></select>
               </div>
               <input type="hidden" id="p-district" />
+              <div class="form-hint">회원가입 때 입력한 내 동네를 자동입력하거나, 아래에서 직접 선택할 수 있습니다.</div>
             </div>
             <div style="display: flex; gap: 10px;">
               <div class="form-group" style="flex:1;">
@@ -2557,6 +2561,42 @@
         const hidden = document.getElementById(`${prefix}-district`);
         // 배민/당근마켓 스타일 표기: "구 동" (시/도는 생략하고 구-동만 노출).
         hidden.value = sigungu && dong ? `${sigungu} ${dong}` : '';
+      }
+
+      function setDistrictPickerValue(prefix, district) {
+        const [sigungu, ...dongParts] = String(district || '').trim().split(/\s+/);
+        const dong = dongParts.join(' ');
+        if (!sigungu || !dong) return false;
+
+        const match = (window.KR_DISTRICTS || []).find(([, sigunguList]) =>
+          sigunguList.some(([name, dongList]) => name === sigungu && dongList.includes(dong))
+        );
+        if (!match) return false;
+
+        const sido = match[0];
+        const sigunguEntry = match[1].find(([name]) => name === sigungu);
+        if (!sigunguEntry) return false;
+
+        const sidoSelect = document.getElementById(`${prefix}-sido`);
+        const sigunguSelect = document.getElementById(`${prefix}-sigungu`);
+        const dongSelect = document.getElementById(`${prefix}-dong`);
+        sidoSelect.value = sido;
+        onDistrictSidoChange(prefix);
+        sigunguSelect.value = sigungu;
+        onDistrictSigunguChange(prefix);
+        dongSelect.value = dong;
+        onDistrictDongChange(prefix);
+        return document.getElementById(`${prefix}-district`).value === `${sigungu} ${dong}`;
+      }
+
+      function fillProviderDistrictFromProfile() {
+        if (!currentUser || !currentUser.district) {
+          alert('먼저 회원가입 또는 로그인을 해주세요.');
+          return;
+        }
+        if (!setDistrictPickerValue('p', currentUser.district)) {
+          alert(`회원가입 때 저장된 동네(${currentUser.district})를 선택 목록에서 찾을 수 없습니다. 아래 선택 메뉴에서 직접 골라주세요.`);
+        }
       }
 
       window.addEventListener('DOMContentLoaded', () => {
