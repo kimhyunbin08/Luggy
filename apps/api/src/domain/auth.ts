@@ -1,9 +1,15 @@
 // Lightweight, dependency-free auth helpers for the C2C direct-contact MVP.
-// No PG/password flow is required (out of scope): login is a simple
-// phone-number based identity check, matching a "당근마켓" style neighbor
-// verification rather than a bank-grade auth system.
+// PG/card payments remain out of scope, but login now requires a password
+// (in addition to the phone-number identifier) so that knowing/guessing a
+// neighbor's phone number alone can no longer be used to take over their
+// account (see prd.md §5/§19, trd.md §16 for the account/data rules).
+
+import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 
 const PHONE_PATTERN = /^01[0-9]-?\d{3,4}-?\d{4}$/;
+// At least 8 characters, containing at least one letter and one digit.
+const PASSWORD_PATTERN = /^(?=.*[A-Za-z])(?=.*\d).{8,64}$/;
+const SCRYPT_KEY_LENGTH = 64;
 
 export function normalizePhone(rawPhone: string): string {
   const digits = rawPhone.replace(/[^0-9]/g, '');
@@ -33,8 +39,34 @@ export function isValidName(name: string): boolean {
 }
 
 export function generateSessionToken(): string {
-  // Simple opaque token; sufficient for an in-memory MVP session store.
-  return `sess_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+  // Cryptographically random opaque token (not guessable like Math.random()),
+  // sufficient for an in-memory MVP session store.
+  return `sess_${randomBytes(24).toString('hex')}`;
+}
+
+// Password requirement: 8~64 characters, at least one letter and one digit.
+export function isValidPassword(password: string): boolean {
+  return PASSWORD_PATTERN.test(password);
+}
+
+// Salted scrypt hash, stored as "saltHex:hashHex". No external dependency
+// (bcrypt/argon2) is required since Node's built-in crypto module already
+// provides a memory-hard KDF suitable for password storage.
+export function hashPassword(password: string): string {
+  const salt = randomBytes(16);
+  const derivedKey = scryptSync(password, salt, SCRYPT_KEY_LENGTH);
+  return `${salt.toString('hex')}:${derivedKey.toString('hex')}`;
+}
+
+// Constant-time comparison against a stored "saltHex:hashHex" value.
+export function verifyPassword(password: string, storedHash: string): boolean {
+  const [saltHex, hashHex] = storedHash.split(':');
+  if (!saltHex || !hashHex) return false;
+  const salt = Buffer.from(saltHex, 'hex');
+  const expected = Buffer.from(hashHex, 'hex');
+  const actual = scryptSync(password, salt, expected.length);
+  if (actual.length !== expected.length) return false;
+  return timingSafeEqual(actual, expected);
 }
 
 // Onboarding step 2: neighborhood address, in the "구 동" style used

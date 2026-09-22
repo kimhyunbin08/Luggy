@@ -2,7 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { calculateRefundAmount, calculateSettlement, calculateTotalPrice, validateMinimumRentalDays } from './domain/calculators.js';
 import { CarrierSize, defaultPolicy } from './domain/policy.js';
-import { generateSessionToken, isValidCarrierPurchaseYear, isValidDistrict, isValidName, isValidNickname, isValidPhone, isValidTravelDaysPerYear, normalizePhone } from './domain/auth.js';
+import { generateSessionToken, hashPassword, isValidCarrierPurchaseYear, isValidDistrict, isValidName, isValidNickname, isValidPassword, isValidPhone, isValidTravelDaysPerYear, normalizePhone, verifyPassword } from './domain/auth.js';
 import { rankQuickRentalCandidates } from './domain/recommendation.js';
 
 type BookingStatus =
@@ -81,6 +81,7 @@ type User = {
   name: string; // real name, private (not shown publicly; nickname is used instead)
   nickname: string;
   phone: string;
+  passwordHash: string; // never returned in API responses; see toPublicUser()
   createdAt: string;
   // Onboarding profile (당근마켓 style personalization), collected at signup.
   district: string; // e.g. "강남구 역삼동" - same format as CarrierItem.district
@@ -128,6 +129,37 @@ function findUserByPhone(phone: string): User | undefined {
   return users.find((u) => u.phone === phone);
 }
 
+// Never leak the password hash back to clients.
+function toPublicUser(user: User) {
+  const { passwordHash: _passwordHash, ...publicUser } = user;
+  return publicUser;
+}
+
+// Basic brute-force mitigation: after repeated failed login attempts for a
+// phone number, lock it out for a short window. In-memory only, matching
+// the rest of the MVP's session store (resets on server restart).
+const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
+const loginAttempts = new Map<string, { count: number; lockedUntil?: number }>();
+
+function isLoginLocked(phone: string): boolean {
+  const entry = loginAttempts.get(phone);
+  return !!entry?.lockedUntil && entry.lockedUntil > Date.now();
+}
+
+function recordLoginFailure(phone: string) {
+  const entry = loginAttempts.get(phone) || { count: 0 };
+  entry.count += 1;
+  if (entry.count >= LOGIN_MAX_ATTEMPTS) {
+    entry.lockedUntil = Date.now() + LOGIN_LOCKOUT_MS;
+  }
+  loginAttempts.set(phone, entry);
+}
+
+function clearLoginFailures(phone: string) {
+  loginAttempts.delete(phone);
+}
+
 function authenticate(req: Request): User | null {
   const header = req.header('Authorization') || '';
   const token = header.startsWith('Bearer ') ? header.slice('Bearer '.length) : '';
@@ -158,7 +190,7 @@ export function createApp() {
   });
 
   // ============================================================
-  // AUTH ENDPOINTS (phone-based login/signup, no password/PG flow)
+  // AUTH ENDPOINTS (phone + password login/signup; no PG flow)
   // ============================================================
 
   app.post('/auth/signup', (req: Request, res: Response) => {
@@ -166,6 +198,7 @@ export function createApp() {
       name: z.string(),
       nickname: z.string(),
       phone: z.string(),
+      password: z.string(),
       district: z.string(),
       ownsCarrier: z.boolean(),
       carrierModel: z.string().optional(),
@@ -185,6 +218,9 @@ export function createApp() {
     }
     if (!isValidPhone(parsed.phone)) {
       return res.status(400).json({ message: '올바른 휴대폰 번호 형식이 아닙니다. (예: 010-1234-5678)' });
+    }
+    if (!isValidPassword(parsed.password)) {
+      return res.status(400).json({ message: '비밀번호는 영문+숫자를 포함해 8자 이상으로 입력해주세요.' });
     }
     if (!isValidDistrict(parsed.district)) {
       return res.status(400).json({ message: '동네(예: 강남구 역삼동)를 입력해주세요.' });
@@ -214,6 +250,7 @@ export function createApp() {
       name: parsed.name.trim(),
       nickname: parsed.nickname.trim(),
       phone,
+      passwordHash: hashPassword(parsed.password),
       createdAt: now,
       district: parsed.district.trim(),
       ownsCarrier: parsed.ownsCarrier,
@@ -228,23 +265,31 @@ export function createApp() {
     users.push(user);
     const token = generateSessionToken();
     sessions.set(token, user.id);
-    res.status(201).json({ token, user });
+    res.status(201).json({ token, user: toPublicUser(user) });
   });
 
   app.post('/auth/login', (req: Request, res: Response) => {
-    const schema = z.object({ phone: z.string() });
+    const schema = z.object({ phone: z.string(), password: z.string() });
     const parsed = schema.parse(req.body);
     if (!isValidPhone(parsed.phone)) {
       return res.status(400).json({ message: '올바른 휴대폰 번호 형식이 아닙니다.' });
     }
     const phone = normalizePhone(parsed.phone);
+    if (isLoginLocked(phone)) {
+      return res.status(429).json({ message: '로그인 시도가 너무 많습니다. 15분 후 다시 시도해주세요.' });
+    }
     const user = findUserByPhone(phone);
     if (!user) {
       return res.status(404).json({ message: '가입되지 않은 휴대폰 번호입니다. 먼저 가입해주세요.' });
     }
+    if (!verifyPassword(parsed.password, user.passwordHash)) {
+      recordLoginFailure(phone);
+      return res.status(401).json({ message: '휴대폰 번호 또는 비밀번호가 일치하지 않습니다.' });
+    }
+    clearLoginFailures(phone);
     const token = generateSessionToken();
     sessions.set(token, user.id);
-    res.json({ token, user });
+    res.json({ token, user: toPublicUser(user) });
   });
 
   app.post('/auth/logout', requireAuth, (req: Request, res: Response) => {
@@ -255,7 +300,7 @@ export function createApp() {
   });
 
   app.get('/auth/me', requireAuth, (req: Request, res: Response) => {
-    res.json({ user: (req as Request & { user: User }).user });
+    res.json({ user: toPublicUser((req as Request & { user: User }).user) });
   });
 
   // ============================================================
