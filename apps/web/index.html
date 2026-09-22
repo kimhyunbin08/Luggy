@@ -1436,6 +1436,39 @@
         renderSettingsProfile();
       }
 
+      function clearStaleAuth(message = '로그인 세션이 만료되었습니다. 다시 로그인해주세요.') {
+        authToken = null;
+        currentUser = null;
+        favoriteIds = new Set();
+        localStorage.removeItem('luggy_token');
+        localStorage.removeItem('luggy_user');
+        renderAuthArea();
+        renderLocationBadge();
+        const listEl = document.getElementById('chat-list');
+        const panelEl = document.getElementById('chat-panel');
+        if (listEl) listEl.innerHTML = `<div class="chat-empty-state">${message}<br/><button class="btn-orange" style="margin-top:10px; font-size:12px; padding:6px 14px;" onclick="openLoginModal()">로그인 / 가입</button></div>`;
+        if (panelEl) panelEl.innerHTML = `<div class="chat-empty-state">${message}</div>`;
+      }
+
+      async function validateStoredSession() {
+        if (!authToken) return false;
+        try {
+          const res = await fetch(`${getApiBase()}/auth/me`, { headers: authHeaders() });
+          if (!res.ok) {
+            if (res.status === 401) clearStaleAuth();
+            return false;
+          }
+          const data = await res.json();
+          currentUser = data.user;
+          localStorage.setItem('luggy_user', JSON.stringify(currentUser));
+          renderAuthArea();
+          renderLocationBadge();
+          return true;
+        } catch (_error) {
+          return Boolean(currentUser);
+        }
+      }
+
       function renderSettingsProfile() {
         const avatar = document.getElementById('settings-avatar');
         const nicknameEl = document.getElementById('settings-nickname');
@@ -2380,6 +2413,14 @@
         }
         try {
           const res = await fetch(`${getApiBase()}/contact-requests`, { headers: authHeaders() });
+          if (res.status === 401) {
+            clearStaleAuth();
+            return;
+          }
+          if (!res.ok) {
+            listEl.innerHTML = `<div class="chat-empty-state">채팅 목록을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.</div>`;
+            return;
+          }
           const data = await res.json();
           chatRequests = (data.requests || []).slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
@@ -2486,6 +2527,10 @@
           });
           if (!res.ok) {
             const data = await res.json();
+            if (res.status === 401) {
+              clearStaleAuth();
+              return;
+            }
             alert(data.message || '메시지 전송에 실패했습니다.');
             return;
           }
@@ -2791,6 +2836,7 @@
       window.addEventListener('DOMContentLoaded', () => {
         renderAuthArea();
         renderLocationBadge();
+        validateStoredSession();
         fetchFavoriteIds().then(() => executeSearch());
         renderHomeDashboard();
         const carrierYearInput = document.getElementById('s-carrier-year');
