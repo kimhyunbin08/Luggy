@@ -90,6 +90,7 @@ type User = {
   carrierPhotoUrl?: string;
   travelDaysPerYear?: number;
   hasStorageIssue?: boolean;
+  preferredMeetingPlace?: string;
   // Mandatory legal consent (collected at signup, cannot be skipped).
   agreedToTermsAt: string;
   agreedToPrivacyAt: string;
@@ -182,6 +183,7 @@ export function createApp() {
       carrierPhotoUrl: z.string().optional(),
       travelDaysPerYear: z.number().optional(),
       hasStorageIssue: z.boolean().optional(),
+      preferredMeetingPlace: z.string().max(200).optional(),
       agreedToTerms: z.boolean().optional(),
       agreedToPrivacy: z.boolean().optional()
     });
@@ -231,6 +233,7 @@ export function createApp() {
       carrierPhotoUrl: parsed.ownsCarrier ? parsed.carrierPhotoUrl?.trim() || undefined : undefined,
       travelDaysPerYear: parsed.travelDaysPerYear,
       hasStorageIssue: parsed.hasStorageIssue,
+      preferredMeetingPlace: parsed.preferredMeetingPlace?.trim() || undefined,
       agreedToTermsAt: now,
       agreedToPrivacyAt: now
     };

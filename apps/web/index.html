@@ -1052,7 +1052,10 @@
               <input type="text" id="p-photo" class="form-input" placeholder="https://..." />
             </div>
             <div class="form-group">
-              <label class="form-label">상세 설명 및 희망 거래 장소</label>
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px;">
+                <label class="form-label" style="margin-bottom: 0;">상세 설명 및 희망 거래 장소</label>
+                <button type="button" class="btn-outline" style="padding: 7px 10px; font-size: 12px;" onclick="fillProviderMeetingPlaceFromProfile()">내 희망 장소 자동입력</button>
+              </div>
               <textarea id="p-desc" class="form-input" style="height: 80px;" placeholder="예: 역삼역 3번 출구 근처에서 직거래 희망합니다. 깨끗하게 사용한 캐리어입니다."></textarea>
             </div>
             <button class="btn-orange" onclick="submitNewCarrier()">📸 내 동네 매물로 등록하기</button>
@@ -1292,6 +1295,11 @@
             <div class="form-group">
               <label class="form-label">1년에 여행/출장으로 캐리어를 사용하는 날은 며칠 정도인가요?</label>
               <input type="number" id="s-travel-days" class="form-input" placeholder="예: 10" min="0" max="365" step="1" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">희망 거래 장소</label>
+              <input type="text" id="s-meeting-place" class="form-input" placeholder="예: 역삼역 3번 출구, 동네 카페 앞" />
+              <div class="form-hint">캐리어를 빌리거나 빌려줄 때 선호하는 만남 장소입니다. 매물 등록 때 자동으로 입력할 수 있습니다.</div>
             </div>
             <div class="form-group">
               <label class="form-label">캐리어가 집에 있을 때 공간 부족 문제를 겪고 계신가요?</label>
@@ -1714,6 +1722,7 @@
             travelDaysPerYear: document.getElementById('s-travel-days').value
               ? Number(document.getElementById('s-travel-days').value) : undefined,
             hasStorageIssue: signupHasStorageIssue,
+            preferredMeetingPlace: document.getElementById('s-meeting-place').value.trim() || undefined,
             agreedToTerms,
             agreedToPrivacy
           };
@@ -2595,8 +2604,24 @@
         if (!currentUser) return;
         const nameField = document.getElementById('p-owner-name');
         const contactField = document.getElementById('p-owner-contact');
-        if (nameField && !nameField.value) nameField.value = currentUser.nickname || '';
-        if (contactField && !contactField.value) contactField.value = currentUser.phone || '';
+        if (nameField) nameField.value = currentUser.nickname || '';
+        if (contactField) contactField.value = currentUser.phone || '';
+      }
+
+      function fillProviderMeetingPlaceFromProfile() {
+        const place = currentUser?.preferredMeetingPlace?.trim();
+        if (!place) {
+          alert('회원가입 때 희망 거래 장소를 입력하지 않았습니다. 직접 입력해주세요.');
+          return;
+        }
+        const descriptionField = document.getElementById('p-desc');
+        if (!descriptionField) return;
+        const existing = descriptionField.value.trim();
+        if (existing && !existing.includes(place)) {
+          descriptionField.value = `${existing}\n희망 거래 장소: ${place}`;
+        } else if (!existing) {
+          descriptionField.value = `희망 거래 장소: ${place}`;
+        }
       }
 
       async function renderProviderCarrierList() {
