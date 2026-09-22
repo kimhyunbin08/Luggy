@@ -108,6 +108,8 @@
         box-shadow: 0 2px 8px rgba(90, 46, 37, 0.12);
       }
 
+      .mobile-bottom-nav { display: none; }
+
       .auth-area { display: flex; align-items: center; gap: 8px; }
 
       .btn-login {
@@ -682,6 +684,20 @@
         font-size: 14px;
       }
       .settings-row:last-child { border-bottom: none; }
+      .settings-section-title {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--text-secondary);
+        margin: 20px 0 4px;
+      }
+      .settings-link {
+        border: 0;
+        background: transparent;
+        color: var(--accent-orange);
+        font-size: 13px;
+        cursor: pointer;
+        padding: 4px 0;
+      }
 
       /* Signup onboarding wizard (4-step: 기본정보 / 동네 / 캐리어·이용습관 / 약관동의) */
       .form-hint {
@@ -747,6 +763,38 @@
       .consent-row a {
         color: var(--accent-orange);
         text-decoration: underline;
+      }
+
+      @media (max-width: 760px) {
+        body { padding-bottom: 74px; }
+        header { position: sticky; }
+        .nav-container { padding: 12px 16px; }
+        .nav-container .nav-tabs {
+          position: fixed;
+          z-index: 1100;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          display: grid;
+          grid-template-columns: repeat(5, 1fr);
+          gap: 0;
+          padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+          border-radius: 14px 14px 0 0;
+          background: rgba(248, 244, 238, 0.98);
+          border-top: 1px solid var(--border-color);
+          box-shadow: 0 -4px 18px rgba(90, 46, 37, 0.12);
+        }
+        .nav-container .nav-btn {
+          min-width: 0;
+          padding: 8px 2px;
+          font-size: 11px;
+          border-radius: 8px;
+          white-space: nowrap;
+        }
+        .nav-container .nav-btn.active { box-shadow: none; }
+        .logo-group { min-width: 0; }
+        .badge-mvp { display: none; }
+        .auth-area { margin-left: auto; }
       }
     </style>
   </head>
@@ -1058,6 +1106,36 @@
               <span>로그아웃</span>
               <button class="btn-orange" style="font-size: 12px; padding: 6px 14px; background: #e5e5ea; color: var(--text-primary);" onclick="logout()">로그아웃</button>
             </div>
+          </div>
+          <div class="settings-section-title">계정 및 개인정보</div>
+          <div class="settings-row">
+            <span>개인정보 수정</span>
+            <button class="settings-link" onclick="openProfileEdit()">수정 안내</button>
+          </div>
+          <div class="settings-row">
+            <span>회원 탈퇴</span>
+            <button class="settings-link" onclick="openProfileEdit()">문의하기</button>
+          </div>
+          <div class="settings-section-title">약관 및 운영 방침</div>
+          <div class="settings-row">
+            <span>이용약관</span>
+            <button class="settings-link" onclick="openLegalModal('terms')">보기</button>
+          </div>
+          <div class="settings-row">
+            <span>개인정보처리방침</span>
+            <button class="settings-link" onclick="openLegalModal('privacyPolicy')">보기</button>
+          </div>
+          <div class="settings-row">
+            <span>개인정보 수집·이용 동의</span>
+            <button class="settings-link" onclick="openLegalModal('privacy')">보기</button>
+          </div>
+          <div class="settings-row">
+            <span>위치정보 이용 안내</span>
+            <button class="settings-link" onclick="openLegalModal('location')">보기</button>
+          </div>
+          <div class="settings-row">
+            <span>직거래·취소·환불 정책</span>
+            <button class="settings-link" onclick="openLegalModal('transaction')">보기</button>
           </div>
         </div>
 
@@ -1486,8 +1564,48 @@
 
 4. 동의 거부 권리
 위 개인정보 수집·이용에 동의하지 않을 권리가 있으나, 동의하지 않을 경우 회원가입 및 서비스 이용이 제한됩니다.`
+        },
+        privacyPolicy: {
+          title: '개인정보처리방침',
+          body: `Luggy는 서비스 제공에 필요한 최소한의 개인정보만 처리합니다.
+
+1. 처리하는 정보
+닉네임, 휴대폰 번호, 동네 정보와 이용자가 선택적으로 입력한 캐리어·여행 관련 정보입니다.
+
+2. 이용 목적
+회원 식별, 동네 기반 매칭, 1:1 문의 연결, 서비스 운영 및 안전한 직거래 지원에 이용합니다.
+
+3. 보관 및 파기
+회원 탈퇴 또는 처리 목적 달성 후 지체 없이 파기합니다. 관계 법령에 따라 보관이 필요한 경우에는 해당 기간 동안 별도로 보관합니다.
+
+4. 제3자 제공 및 위탁
+원칙적으로 외부에 제공하지 않습니다. 법령에 따른 요청이나 이용자의 동의가 있는 경우에만 예외로 합니다.
+
+5. 이용자의 권리
+이용자는 개인정보 열람, 정정, 삭제 및 처리정지를 요청할 수 있습니다. 설정의 개인정보 수정 안내를 통해 문의해주세요.`
+        },
+        location: {
+          title: '위치정보 이용 안내',
+          body: `Luggy는 정확한 GPS 위치를 필수로 수집하지 않습니다.
+
+회원가입 때 선택한 시·군·구·동 정보는 가까운 캐리어 매물을 찾고 거래 가능한 동네를 표시하는 데 사용됩니다. 매물에는 이용자가 등록한 거래 동네만 표시되며, 상세 주소나 실시간 위치는 공개하지 않습니다.
+
+위치 기반 기능은 동네 정보를 입력하지 않아도 이용할 수 있지만, 주변 매칭의 정확도가 낮아질 수 있습니다.`
+        },
+        transaction: {
+          title: '직거래·취소·환불 정책',
+          body: `Luggy는 이웃 간 캐리어 직거래를 연결하는 플랫폼이며 온라인 결제나 배송을 대행하지 않습니다.
+
+1. 거래 조건, 대여료, 전달·반납 시간과 장소는 이용자 간 직접 협의합니다.
+2. 예약 취소, 보증금, 환불 및 파손 보상 조건은 거래 전에 양측이 합의해야 합니다.
+3. 연락처와 상세 거래 위치는 문의 후 필요한 범위에서만 공유해주세요.
+4. 분쟁이 발생하면 채팅 기록과 합의 내용을 바탕으로 당사자 간 해결을 우선합니다.`
         }
       };
+
+      function openProfileEdit() {
+        alert('개인정보 수정 및 회원 탈퇴는 현재 준비 중입니다. 수정이 필요한 경우 고객 문의를 통해 요청해주세요.');
+      }
 
       function openLegalModal(kind) {
         const doc = LEGAL_DOCS[kind];
