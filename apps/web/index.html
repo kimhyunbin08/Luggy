@@ -8,21 +8,21 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
       :root {
-        --bg-color: #f5f5f7;
-        --card-bg: #ffffff;
-        --text-primary: #1d1d1f;
-        --text-secondary: #86868b;
-        --accent-orange: #ff6f0f;
-        --accent-orange-hover: #e55e00;
-        --accent-navy: #0b3a82;
-        --accent-green: #12805c;
-        --accent-red: #d9381e;
-        --border-color: rgba(0, 0, 0, 0.08);
-        --radius-lg: 18px;
-        --radius-md: 12px;
+        --bg-color: #f0e6d8;
+        --card-bg: #f8f4ee;
+        --text-primary: #101719;
+        --text-secondary: #8a7568;
+        --accent-orange: #b5543a;
+        --accent-orange-hover: #96432d;
+        --accent-navy: #5a2e25;
+        --accent-green: #6f7f5f;
+        --accent-red: #b3261e;
+        --border-color: rgba(90, 46, 37, 0.16);
+        --radius-lg: 16px;
+        --radius-md: 10px;
         --radius-sm: 8px;
-        --shadow-subtle: 0 4px 20px rgba(0, 0, 0, 0.04);
-        --shadow-card: 0 8px 30px rgba(0, 0, 0, 0.06);
+        --shadow-subtle: 0 4px 20px rgba(90, 46, 37, 0.07);
+        --shadow-card: 0 8px 30px rgba(90, 46, 37, 0.12);
       }
 
       * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -40,9 +40,7 @@
         position: sticky;
         top: 0;
         z-index: 1000;
-        background: rgba(255, 255, 255, 0.88);
-        backdrop-filter: blur(20px);
-        -webkit-backdrop-filter: blur(20px);
+        background: var(--card-bg);
         border-bottom: 1px solid var(--border-color);
       }
 
@@ -67,22 +65,26 @@
         font-size: 22px;
         font-weight: 800;
         letter-spacing: -0.5px;
-        color: var(--accent-orange);
+        text-transform: lowercase;
+        color: var(--text-primary);
         text-decoration: none;
+      }
+      .logo::after {
+        content: '.';
+        color: var(--accent-orange);
       }
 
       .badge-mvp {
-        background: rgba(255, 111, 15, 0.1);
-        color: var(--accent-orange);
-        font-size: 11px;
-        font-weight: 700;
-        padding: 3px 10px;
-        border-radius: 20px;
+        background: transparent;
+        color: var(--text-secondary);
+        font-size: 12px;
+        font-weight: 600;
+        padding: 0;
       }
 
       .nav-tabs {
         display: flex;
-        background: rgba(0, 0, 0, 0.04);
+        background: rgba(90, 46, 37, 0.06);
         padding: 4px;
         border-radius: 12px;
         gap: 4px;
@@ -101,9 +103,9 @@
       }
 
       .nav-btn.active {
-        background: #ffffff;
+        background: #f8f4ee;
         color: var(--text-primary);
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        box-shadow: 0 2px 8px rgba(90, 46, 37, 0.12);
       }
 
       .auth-area { display: flex; align-items: center; gap: 8px; }
@@ -125,7 +127,7 @@
         display: flex;
         align-items: center;
         gap: 8px;
-        background: rgba(0, 0, 0, 0.04);
+        background: rgba(90, 46, 37, 0.06);
         padding: 6px 8px 6px 12px;
         border-radius: 20px;
       }
@@ -140,7 +142,7 @@
         padding: 6px 10px;
         border-radius: 14px;
       }
-      .btn-logout:hover { background: rgba(0, 0, 0, 0.06); }
+      .btn-logout:hover { background: rgba(90, 46, 37, 0.08); }
 
       .favorite-btn {
         position: absolute;
@@ -150,13 +152,13 @@
         height: 32px;
         border-radius: 50%;
         border: none;
-        background: rgba(255, 255, 255, 0.9);
+        background: rgba(248, 244, 238, 0.92);
         font-size: 16px;
         cursor: pointer;
         display: flex;
         align-items: center;
         justify-content: center;
-        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+        box-shadow: 0 2px 6px rgba(90, 46, 37, 0.18);
       }
       .favorite-btn.active { color: var(--accent-orange); }
 
@@ -169,14 +171,21 @@
       .tab-content { display: none; }
       .tab-content.active { display: block; }
 
-      /* Filter & Search Card */
-      .search-card {
+      /* Filter & Search Card (flat surface, no blur/gradient) */
+      .search-card,
+      .modal-card,
+      .map-wrapper,
+      .chat-list,
+      .chat-panel {
         background: var(--card-bg);
-        border-radius: var(--radius-lg);
-        padding: 24px;
-        box-shadow: var(--shadow-card);
         border: 1px solid var(--border-color);
-        margin-bottom: 24px;
+        box-shadow: var(--shadow-subtle);
+      }
+
+      .search-card {
+        border-radius: var(--radius-lg);
+        padding: 20px;
+        margin-bottom: 20px;
       }
 
       .search-title-row {
@@ -223,11 +232,11 @@
       .form-input, .form-select {
         width: 100%;
         padding: 10px 12px;
-        border: 1px solid rgba(0, 0, 0, 0.12);
+        border: 1px solid rgba(90, 46, 37, 0.18);
         border-radius: var(--radius-md);
         font-size: 14px;
         font-weight: 500;
-        background: #fafafa;
+        background: #f3eae0;
         color: var(--text-primary);
         outline: none;
         transition: border-color 0.2s ease, box-shadow 0.2s ease;
@@ -235,8 +244,8 @@
 
       .form-input:focus, .form-select:focus {
         border-color: var(--accent-orange);
-        box-shadow: 0 0 0 3px rgba(255, 111, 15, 0.15);
-        background: #ffffff;
+        box-shadow: 0 0 0 3px rgba(181, 84, 58, 0.18);
+        background: #f8f4ee;
       }
 
       .btn-orange {
@@ -258,7 +267,7 @@
       .btn-orange:hover { background: var(--accent-orange-hover); }
 
       .btn-outline {
-        background: #ffffff;
+        background: #f8f4ee;
         color: var(--accent-orange);
         border: 1.5px solid var(--accent-orange);
         padding: 10px 18px;
@@ -273,7 +282,7 @@
         gap: 6px;
       }
 
-      .btn-outline:hover { background: #fff5ec; }
+      .btn-outline:hover { background: #f3e2d6; }
 
       .carrier-action-row {
         display: flex;
@@ -293,8 +302,8 @@
 
       .map-banner {
         padding: 12px 18px;
-        background: #fff8f0;
-        border-bottom: 1px solid rgba(255, 111, 15, 0.15);
+        background: #f3e2d6;
+        border-bottom: 1px solid rgba(181, 84, 58, 0.18);
         display: flex;
         justify-content: space-between;
         align-items: center;
@@ -335,7 +344,7 @@
       .carrier-img-wrap {
         position: relative;
         height: 190px;
-        background: #f0f0f2;
+        background: #ede1d2;
         overflow: hidden;
       }
 
@@ -349,7 +358,7 @@
         position: absolute;
         top: 12px;
         left: 12px;
-        background: rgba(0, 0, 0, 0.72);
+        background: rgba(58, 30, 22, 0.75);
         backdrop-filter: blur(8px);
         color: #ffffff;
         font-size: 11px;
@@ -409,7 +418,7 @@
         font-size: 13px;
         color: var(--text-primary);
         line-height: 1.4;
-        background: #fafafa;
+        background: #f3eae0;
         padding: 8px 10px;
         border-radius: var(--radius-sm);
       }
@@ -418,7 +427,7 @@
       .modal-overlay {
         position: fixed;
         top: 0; left: 0; right: 0; bottom: 0;
-        background: rgba(0,0,0,0.5);
+        background: rgba(35, 20, 15, 0.55);
         backdrop-filter: blur(6px);
         -webkit-backdrop-filter: blur(6px);
         z-index: 2000;
@@ -429,7 +438,7 @@
       }
 
       .modal-card {
-        background: #ffffff;
+        background: #f8f4ee;
         border-radius: var(--radius-lg);
         width: 100%;
         max-width: 500px;
@@ -454,14 +463,14 @@
         font-size: 12px;
         font-weight: 700;
       }
-      .badge-status.pending { background: #fff3e0; color: var(--accent-orange); }
-      .badge-status.accepted { background: #e8f4fd; color: var(--accent-navy); }
-      .badge-status.completed { background: #e6f4ea; color: var(--accent-green); }
-      .badge-status.cancelled { background: #fce8e6; color: var(--accent-red); }
+      .badge-status.pending { background: #f3e1d3; color: var(--accent-orange); }
+      .badge-status.accepted { background: #efdcd3; color: var(--accent-navy); }
+      .badge-status.completed { background: #e4e8dc; color: var(--accent-green); }
+      .badge-status.cancelled { background: #f5dad4; color: var(--accent-red); }
 
       .event-log-container {
-        background: #1c1c1e;
-        color: #ff9f0a;
+        background: #241a16;
+        color: #e8a06a;
         font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
         padding: 16px;
         border-radius: var(--radius-md);
@@ -472,8 +481,8 @@
       }
 
       .price-calc-box {
-        background: #f8f9fa;
-        border: 1px solid rgba(0,0,0,0.06);
+        background: #f8f4ee;
+        border: 1px solid rgba(90, 46, 37, 0.14);
         border-radius: var(--radius-md);
         padding: 12px 14px;
         margin-bottom: 12px;
@@ -490,7 +499,7 @@
         font-weight: 800;
         font-size: 15px;
         color: var(--accent-orange);
-        border-top: 1px solid rgba(0,0,0,0.08);
+        border-top: 1px solid rgba(90, 46, 37, 0.16);
         padding-top: 6px;
         margin-top: 6px;
       }
@@ -522,28 +531,27 @@
 
       /* Home dashboard */
       .home-hero {
-        background: linear-gradient(135deg, var(--accent-orange) 0%, #ff9248 100%);
+        background: var(--accent-navy);
         border-radius: var(--radius-lg);
-        padding: 32px;
+        padding: 28px;
         color: #fff;
-        margin-bottom: 20px;
-        box-shadow: var(--shadow-card);
+        margin-bottom: 18px;
+        box-shadow: var(--shadow-subtle);
       }
-      .home-hero h1 { font-size: 26px; font-weight: 800; margin-bottom: 8px; }
+      .home-hero h1 { font-size: 26px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 8px; }
       .home-hero p { font-size: 14px; opacity: 0.92; margin-bottom: 18px; }
       .home-hero-actions { display: flex; gap: 10px; flex-wrap: wrap; }
       .btn-hero {
-        border: none;
-        background: rgba(255,255,255,0.18);
+        border: 1px solid rgba(255, 255, 255, 0.32);
+        background: rgba(255, 255, 255, 0.1);
         color: #fff;
         padding: 10px 18px;
         font-size: 13px;
         font-weight: 700;
         border-radius: 20px;
         cursor: pointer;
-        backdrop-filter: blur(6px);
       }
-      .btn-hero.solid { background: #ffffff; color: var(--accent-orange); }
+      .btn-hero.solid { background: #f8f4ee; color: var(--accent-orange); border-color: #f8f4ee; }
       .home-stats-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -585,8 +593,8 @@
         cursor: pointer;
         transition: background 0.15s ease;
       }
-      .chat-list-item:hover { background: #fafafa; }
-      .chat-list-item.active { background: rgba(255, 111, 15, 0.08); }
+      .chat-list-item:hover { background: #f3eae0; }
+      .chat-list-item.active { background: rgba(181, 84, 58, 0.1); }
       .chat-list-item .chat-item-title { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
       .chat-list-item .chat-item-preview { font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .chat-panel {
@@ -654,7 +662,7 @@
         align-items: center;
         gap: 16px;
         padding: 20px;
-        background: #fafafa;
+        background: #f3eae0;
         border-radius: var(--radius-md);
         border: 1px solid var(--border-color);
         margin-bottom: 20px;
@@ -942,7 +950,7 @@
           <div style="display: flex; flex-direction: column; gap: 14px;">
             <div class="form-group">
               <label class="form-label">캐리어 브랜드 / 모델명</label>
-              <input type="text" id="p-brand" class="form-input" placeholder="예: 리모와 에센셜 20인치" value="샘소나이트 스마트 20인치" />
+              <input type="text" id="p-brand" class="form-input" placeholder="예: 리모와 에센셜 20인치" />
             </div>
             <div style="display: flex; gap: 10px;">
               <div class="form-group" style="flex:1;">
@@ -959,25 +967,30 @@
             </div>
             <div class="form-group">
               <label class="form-label">거래 가능 동네 / 구</label>
-              <input type="text" id="p-district" class="form-input" placeholder="예: 강남구 역삼동" value="강남구 역삼동" />
+              <div style="display: flex; gap: 6px;">
+                <select id="p-sido" class="form-select" style="flex:1;" onchange="onDistrictSidoChange('p')"></select>
+                <select id="p-sigungu" class="form-select" style="flex:1;" onchange="onDistrictSigunguChange('p')" disabled></select>
+                <select id="p-dong" class="form-select" style="flex:1;" onchange="onDistrictDongChange('p')" disabled></select>
+              </div>
+              <input type="hidden" id="p-district" />
             </div>
             <div style="display: flex; gap: 10px;">
               <div class="form-group" style="flex:1;">
                 <label class="form-label">소유자 닉네임</label>
-                <input type="text" id="p-owner-name" class="form-input" value="역삼동이웃" />
+                <input type="text" id="p-owner-name" class="form-input" placeholder="예: 역삼동이웃" />
               </div>
               <div class="form-group" style="flex:1;">
                 <label class="form-label">연락처 (전화번호)</label>
-                <input type="text" id="p-owner-contact" class="form-input" value="010-9876-5432" />
+                <input type="text" id="p-owner-contact" class="form-input" placeholder="예: 010-1234-5678" />
               </div>
             </div>
             <div class="form-group">
               <label class="form-label">사진 URL (선택)</label>
-              <input type="text" id="p-photo" class="form-input" placeholder="https://..." value="https://images.unsplash.com/photo-1565026057447-b88e3f291029?auto=format&fit=crop&w=600&q=80" />
+              <input type="text" id="p-photo" class="form-input" placeholder="https://..." />
             </div>
             <div class="form-group">
               <label class="form-label">상세 설명 및 희망 거래 장소</label>
-              <textarea id="p-desc" class="form-input" style="height: 80px;">역삼역 3번 출구 근처에서 직거래 희망합니다. 깨끗하게 사용한 캐리어입니다.</textarea>
+              <textarea id="p-desc" class="form-input" style="height: 80px;" placeholder="예: 역삼역 3번 출구 근처에서 직거래 희망합니다. 깨끗하게 사용한 캐리어입니다."></textarea>
             </div>
             <button class="btn-orange" onclick="submitNewCarrier()">📸 내 동네 매물로 등록하기</button>
           </div>
@@ -1052,7 +1065,7 @@
     <div class="modal-overlay" id="contact-modal">
       <div class="modal-card">
         <h2 class="modal-title" id="modal-carrier-title">소유자에게 1:1 대여 문의</h2>
-        <div id="modal-carrier-info" style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px; background: #fafafa; padding: 12px; border-radius: var(--radius-sm); border: 1px solid rgba(0,0,0,0.06);"></div>
+        <div id="modal-carrier-info" style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px; background: #f3eae0; padding: 12px; border-radius: var(--radius-sm); border: 1px solid rgba(0,0,0,0.06);"></div>
         <button type="button" class="btn-outline" id="modal-directions-btn" style="width: 100%; margin-bottom: 12px;" onclick="if (selectedCarrier) openDirectionsTo(selectedCarrier.id)">
           🧭 내 위치에서 경로 안내 받기
         </button>
@@ -1075,20 +1088,20 @@
         <div style="display: flex; flex-direction: column; gap: 12px;">
           <div class="form-group">
             <label class="form-label">대여자 이름</label>
-            <input type="text" id="m-renter-name" class="form-input" value="김대여" />
+            <input type="text" id="m-renter-name" class="form-input" placeholder="이름을 입력해주세요" />
           </div>
           <div class="form-group">
             <label class="form-label">대여자 연락처</label>
-            <input type="text" id="m-renter-phone" class="form-input" value="010-1234-5678" />
+            <input type="text" id="m-renter-phone" class="form-input" placeholder="010-1234-5678" />
           </div>
           <div style="display: flex; gap: 8px;">
             <div class="form-group" style="flex:1;">
               <label class="form-label">대여 시작일</label>
-              <input type="date" id="m-start-date" class="form-input" value="2026-08-10" onchange="updateModalPriceCalc()" />
+              <input type="date" id="m-start-date" class="form-input" onchange="updateModalPriceCalc()" />
             </div>
             <div class="form-group" style="flex:1;">
               <label class="form-label">대여 종료일</label>
-              <input type="date" id="m-end-date" class="form-input" value="2026-08-12" onchange="updateModalPriceCalc()" />
+              <input type="date" id="m-end-date" class="form-input" onchange="updateModalPriceCalc()" />
             </div>
           </div>
           <div class="form-group">
@@ -1150,8 +1163,13 @@
           <div class="signup-step" id="signup-step-2" style="display: none;">
             <div class="form-group">
               <label class="form-label">우리 동네</label>
-              <input type="text" id="s-district" class="form-input" placeholder="예: 강남구 역삼동" />
-              <div class="form-hint">지도에서 내 동네 매물을 우선 보여드리고, 헤더에 표시됩니다.</div>
+              <div style="display: flex; gap: 6px;">
+                <select id="s-sido" class="form-select" style="flex:1;" onchange="onDistrictSidoChange('s')"></select>
+                <select id="s-sigungu" class="form-select" style="flex:1;" onchange="onDistrictSigunguChange('s')" disabled></select>
+                <select id="s-dong" class="form-select" style="flex:1;" onchange="onDistrictDongChange('s')" disabled></select>
+              </div>
+              <input type="hidden" id="s-district" />
+              <div class="form-hint">시 - 군/구 - 동을 차례로 선택하면 지도/헤더에 정확한 동네가 표시됩니다.</div>
             </div>
           </div>
 
@@ -1268,6 +1286,12 @@
 
     <!-- Leaflet JS for Map (Default Zero-Config Fallback) -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Korean administrative district dataset (시/도 -> 시/군/구 -> 읍/면/동),
+         used to power the cascading location picker at signup and carrier
+         registration so users select a real, objective address instead of
+         typing free text (see AGENTS.md/prd.md 위치 요구사항). -->
+    <script src="/kr-districts.js"></script>
 
     <!-- Global Map & Platform Application Logic -->
     <script>
@@ -1488,7 +1512,7 @@
         } else if (signupStep === 2) {
           const district = document.getElementById('s-district').value.trim();
           if (!district) {
-            errorBox.innerText = '우리 동네(예: 강남구 역삼동)를 입력해주세요.';
+            errorBox.innerText = '우리 동네(시/군/구/동)를 모두 선택해주세요.';
             errorBox.style.display = 'block';
             return;
           }
@@ -1694,6 +1718,7 @@
           fetchAndRenderFavorites();
         } else if (tabName === 'rental') {
           renderProviderCarrierList();
+          prefillProviderOwnerFields();
         } else if (tabName === 'chat') {
           fetchChatList();
         } else if (tabName === 'settings') {
@@ -1851,11 +1876,9 @@
           renderMapPins(currentCarriers);
           renderCarrierCards(currentCarriers);
         } catch (err) {
-          currentCarriers = [
-            { id: 'c1', brandModel: '리모와 에센셜 캐빈 (20인치)', size: 'carry_on', district: '강남구 역삼동', lat: 37.4979, lng: 127.0276, dailyPrice: 7900, ownerName: '역삼동이웃', ownerContact: '010-9876-5432', rating: 4.9, reviews: 18, photoUrl: 'https://images.unsplash.com/photo-1565026057447-b88e3f291029?auto=format&fit=crop&w=600&q=80', description: '역삼역 3번 출구 근처 직거래 가능합니다.' },
-            { id: 'c2', brandModel: '샘소나이트 에어로스 20인치', size: 'carry_on', district: '서초구 서초동', lat: 37.4918, lng: 127.0079, dailyPrice: 7000, ownerName: '서초트래블러', ownerContact: '010-8765-4321', rating: 4.8, reviews: 12, photoUrl: 'https://images.unsplash.com/photo-1581553680321-4fffae59febd?auto=format&fit=crop&w=600&q=80', description: '교대역/서초역 부근 거래 가능합니다.' },
-            { id: 'c3', brandModel: '샘소나이트 시큐리티 24인치', size: 'medium', district: '마포구 연남동', lat: 37.5623, lng: 126.9242, dailyPrice: 11900, ownerName: '연남여행자', ownerContact: '010-7654-3210', rating: 4.9, reviews: 24, photoUrl: 'https://images.unsplash.com/photo-1581553680321-4fffae59febd?auto=format&fit=crop&w=600&q=80', description: '유럽 여행에 딱 좋은 24인치 수하물용 캐리어입니다.' }
-          ];
+          // No network fallback to fake listings — an empty result set is shown
+          // instead so users never see placeholder/ghost carriers.
+          currentCarriers = [];
           renderMapPins(currentCarriers);
           renderCarrierCards(currentCarriers);
         }
@@ -1881,7 +1904,7 @@
 
             const marker = new kakao.maps.Marker({ position: loc, map: map });
             const infowindow = new kakao.maps.InfoWindow({
-              content: `<div style="padding:8px;font-size:12px;color:#1d1d1f;min-width:150px;"><strong>${item.brandModel}</strong><br/>📍 ${item.district}<br/><span style="color:#ff6f0f;font-weight:bold;">${item.dailyPrice.toLocaleString()}원/일</span><br/><a href="#" onclick="openDirectionsTo('${item.id}'); return false;" style="color:#007aff;">🧭 경로 안내</a></div>`
+              content: `<div style="padding:8px;font-size:12px;color:#101719;min-width:150px;"><strong>${item.brandModel}</strong><br/>📍 ${item.district}<br/><span style="color:#b5543a;font-weight:bold;">${item.dailyPrice.toLocaleString()}원/일</span><br/><a href="#" onclick="openDirectionsTo('${item.id}'); return false;" style="color:#6f7f5f;font-weight:600;">🧭 경로 안내</a></div>`
             });
             kakao.maps.event.addListener(marker, 'click', () => {
               infowindow.open(map, marker);
@@ -1909,9 +1932,9 @@
             <div style="font-size: 13px; padding: 4px;">
               <strong>${item.brandModel}</strong><br/>
               📍 ${item.district}<br/>
-              <span style="color: #ff6f0f; font-weight: 800;">${item.dailyPrice.toLocaleString()}원/일</span><br/>
-              <button onclick="openDirectionsTo('${item.id}')" style="margin-top: 6px; background: #ffffff; color: #ff6f0f; border: 1.5px solid #ff6f0f; padding: 5px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer;">🧭 경로 안내</button>
-              <button onclick="openContactModal('${item.id}')" style="margin-top: 6px; background: #ff6f0f; color: white; border: none; padding: 5px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer;">💬 1:1 대여 문의</button>
+              <span style="color: #b5543a; font-weight: 800;">${item.dailyPrice.toLocaleString()}원/일</span><br/>
+              <button onclick="openDirectionsTo('${item.id}')" style="margin-top: 6px; background: #f8f4ee; color: #b5543a; border: 1.5px solid #b5543a; padding: 5px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer;">🧭 경로 안내</button>
+              <button onclick="openContactModal('${item.id}')" style="margin-top: 6px; background: #b5543a; color: white; border: none; padding: 5px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer;">💬 1:1 대여 문의</button>
             </div>
           `);
           markers.push(marker);
@@ -1937,6 +1960,10 @@
       }
 
       function renderCardsInto(grid, items) {
+        if (items.length === 0) {
+          grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 32px; background: var(--card-bg); border-radius: var(--radius-lg); color: var(--text-secondary); border: 1px solid var(--border-color);">아직 등록된 캐리어가 없습니다. '내 캐리어 등록하기'에서 첫 매물을 올려보세요!</div>`;
+          return;
+        }
         grid.innerHTML = items.map(item => `
           <div class="carrier-card">
             <div class="carrier-img-wrap">
@@ -2123,6 +2150,11 @@
 
         document.getElementById('modal-carrier-title').innerText = `[${selectedCarrier.district}] ${selectedCarrier.brandModel}`;
         document.getElementById('modal-carrier-info').innerText = `소유자: ${selectedCarrier.ownerName} | 1일 대여료: ${selectedCarrier.dailyPrice.toLocaleString()}원`;
+        // Prefill with the logged-in user's own name/phone (never fake data).
+        if (currentUser) {
+          document.getElementById('m-renter-name').value = currentUser.nickname || '';
+          document.getElementById('m-renter-phone').value = currentUser.phone || '';
+        }
         updateModalPriceCalc();
         document.getElementById('contact-modal').style.display = 'flex';
       }
@@ -2383,6 +2415,14 @@
           alert('1일 대여료는 0보다 큰 금액으로 입력해주세요.');
           return;
         }
+        if (!brandModel.trim()) {
+          alert('캐리어 브랜드/모델명을 입력해주세요.');
+          return;
+        }
+        if (!district) {
+          alert('거래 가능 동네(시/군/구/동)를 모두 선택해주세요.');
+          return;
+        }
 
         try {
           const res = await fetch(`${getApiBase()}/providers/carriers`, {
@@ -2414,6 +2454,16 @@
         }
       }
 
+      // Prefill the provider-registration owner fields with the logged-in user's
+      // own nickname/phone (never fake seed data). Only overwrites empty fields.
+      function prefillProviderOwnerFields() {
+        if (!currentUser) return;
+        const nameField = document.getElementById('p-owner-name');
+        const contactField = document.getElementById('p-owner-contact');
+        if (nameField && !nameField.value) nameField.value = currentUser.nickname || '';
+        if (contactField && !contactField.value) contactField.value = currentUser.phone || '';
+      }
+
       async function renderProviderCarrierList() {
         const listEl = document.getElementById('provider-carrier-list');
         if (!authToken) {
@@ -2429,7 +2479,7 @@
             return;
           }
           listEl.innerHTML = items.map(c => `
-            <div style="padding: 12px; background: #fafafa; border: 1px solid var(--border-color); border-radius: var(--radius-md); display: flex; justify-content: space-between; align-items: center;">
+            <div style="padding: 12px; background: #f3eae0; border: 1px solid var(--border-color); border-radius: var(--radius-md); display: flex; justify-content: space-between; align-items: center;">
               <div>
                 <strong>${c.brandModel}</strong> (${c.district})
                 <div style="font-size: 12px; color: var(--text-secondary);">${c.dailyPrice.toLocaleString()}원/일 | ★ ${c.rating.toFixed(1)} (${c.reviews})</div>
@@ -2443,6 +2493,72 @@
       }
 
       // Initialize default search on load
+      // ============================================================
+      // Korean administrative district picker (시/도 -> 시/군/구 -> 읍/면/동)
+      // Backed by window.KR_DISTRICTS (public/kr-districts.js), a static
+      // real-address dataset - replaces free-text district entry so every
+      // registered location is an objective, valid Korean address instead
+      // of an arbitrary typed string.
+      // ============================================================
+      function initDistrictPicker(prefix) {
+        const sidoSelect = document.getElementById(`${prefix}-sido`);
+        if (!sidoSelect || !window.KR_DISTRICTS) return;
+        sidoSelect.innerHTML = '<option value="">시/도 선택</option>' +
+          window.KR_DISTRICTS.map(([sido]) => `<option value="${sido}">${sido}</option>`).join('');
+      }
+
+      function onDistrictSidoChange(prefix) {
+        const sido = document.getElementById(`${prefix}-sido`).value;
+        const sigunguSelect = document.getElementById(`${prefix}-sigungu`);
+        const dongSelect = document.getElementById(`${prefix}-dong`);
+        dongSelect.innerHTML = '<option value="">동/읍/면 선택</option>';
+        dongSelect.disabled = true;
+
+        const entry = (window.KR_DISTRICTS || []).find(([name]) => name === sido);
+        if (!entry) {
+          sigunguSelect.innerHTML = '<option value="">시/군/구 선택</option>';
+          sigunguSelect.disabled = true;
+          updateDistrictHiddenValue(prefix);
+          return;
+        }
+        sigunguSelect.innerHTML = '<option value="">시/군/구 선택</option>' +
+          entry[1].map(([gugun]) => `<option value="${gugun}">${gugun}</option>`).join('');
+        sigunguSelect.disabled = false;
+        updateDistrictHiddenValue(prefix);
+      }
+
+      function onDistrictSigunguChange(prefix) {
+        const sido = document.getElementById(`${prefix}-sido`).value;
+        const sigungu = document.getElementById(`${prefix}-sigungu`).value;
+        const dongSelect = document.getElementById(`${prefix}-dong`);
+
+        const entry = (window.KR_DISTRICTS || []).find(([name]) => name === sido);
+        const gugunEntry = entry && entry[1].find(([name]) => name === sigungu);
+        if (!gugunEntry) {
+          dongSelect.innerHTML = '<option value="">동/읍/면 선택</option>';
+          dongSelect.disabled = true;
+          updateDistrictHiddenValue(prefix);
+          return;
+        }
+        dongSelect.innerHTML = '<option value="">동/읍/면 선택</option>' +
+          gugunEntry[1].map((dong) => `<option value="${dong}">${dong}</option>`).join('');
+        dongSelect.disabled = false;
+        updateDistrictHiddenValue(prefix);
+      }
+
+      function onDistrictDongChange(prefix) {
+        updateDistrictHiddenValue(prefix);
+      }
+
+      function updateDistrictHiddenValue(prefix) {
+        const sido = document.getElementById(`${prefix}-sido`).value;
+        const sigungu = document.getElementById(`${prefix}-sigungu`).value;
+        const dong = document.getElementById(`${prefix}-dong`).value;
+        const hidden = document.getElementById(`${prefix}-district`);
+        // 배민/당근마켓 스타일 표기: "구 동" (시/도는 생략하고 구-동만 노출).
+        hidden.value = sigungu && dong ? `${sigungu} ${dong}` : '';
+      }
+
       window.addEventListener('DOMContentLoaded', () => {
         renderAuthArea();
         renderLocationBadge();
@@ -2450,6 +2566,8 @@
         renderHomeDashboard();
         const carrierYearInput = document.getElementById('s-carrier-year');
         if (carrierYearInput) carrierYearInput.max = String(new Date().getFullYear());
+        initDistrictPicker('s');
+        initDistrictPicker('p');
       });
     </script>
   </body>
