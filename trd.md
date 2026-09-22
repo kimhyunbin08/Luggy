@@ -188,15 +188,16 @@
 결제(PG)를 제외한 플랫폼 전 기능 구현 지시에 따라 신규 구현된 기술 요구사항이다. `apps/api/src/server.ts` 및 `apps/api/src/domain/auth.ts`에 구현되어 있다.
 
 ### 16.1 신규 데이터 엔티티
-- `User` (id, nickname, phone, createdAt) — 휴대폰 번호 기반, 비밀번호 없음
+- `User` (id, nickname, phone, passwordHash, createdAt) — 휴대폰 번호를 식별자로, 비밀번호(솔트 적용 해시)를 소유 증명 수단으로 사용. `passwordHash`는 API 응답에 절대 포함하지 않는다(`toPublicUser()`로 응답 직전에 제거).
 - `sessions`: `Map<token, userId>` (인메모리 세션 스토어, 오브젝트 인증에 `Authorization: Bearer <token>` 사용)
+- `loginAttempts`: `Map<phone, { count, lockedUntil? }>` (인메모리, 무차별 대입 방지용 로그인 실패 카운터/잠금)
 - `favorites`: (id, userId, carrierId, createdAt)
 - `Review` (id, carrierId, contactRequestId, reviewerId, reviewerName, rating, comment, createdAt)
 - `CarrierItem`에 `ownerId?`(등록한 User), `ContactRequest`에 `renterId?`(로그인 렌터) 필드 추가
 
 ### 16.2 신규 API
-1. `POST /auth/signup` — `{ nickname, phone }` -> `{ token, user }`
-2. `POST /auth/login` — `{ phone }` -> `{ token, user }` (가입 이력 없으면 404)
+1. `POST /auth/signup` — `{ nickname, phone, password }` -> `{ token, user }` (비밀번호 형식이 유효하지 않으면 400)
+2. `POST /auth/login` — `{ phone, password }` -> `{ token, user }` (가입 이력 없으면 404, 비밀번호 불일치면 401, 반복 실패로 잠금 상태면 429)
 3. `POST /auth/logout` — 세션 토큰 무효화
 4. `GET /auth/me` — 인증 헤더로 현재 로그인 사용자 조회
 5. `GET /favorites` — 인증 필요, 본인 찜 목록(`favorites`)과 캐리어 상세(`items`) 반환
@@ -210,8 +211,12 @@
 13. 기존 `GET /contact-requests`는 인증 시 본인이 렌터이거나 본인 소유 캐리어에 대한 문의만 필터링, 비인증 시 종전 동작(전체 목록) 유지.
 
 ### 16.3 인증 방식
-- 비밀번호/PG 본인인증 없음. 휴대폰 번호를 식별자로 사용하는 경량 세션(오파크 토큰) 방식.
-- 토큰은 클라이언트 localStorage(`luggy_token`, `luggy_user`)에 저장, API 호출 시 `Authorization: Bearer <token>` 헤더로 전달.
+- 휴대폰 번호(식별자) + 비밀번호(소유 증명) 기반 자체 인증. PG 본인인증/SMS OTP는 미지원(후속 과제).
+- 비밀번호는 `node:crypto`의 `scrypt`로 솔트(16바이트, 요청마다 랜덤)를 적용해 해시한 뒤 `saltHex:hashHex` 형태로만 저장한다(`hashPassword`/`verifyPassword`, `apps/api/src/domain/auth.ts`). 비교는 `timingSafeEqual`로 타이밍 공격을 방지한다.
+- 비밀번호 형식 규칙: 8~64자, 영문/숫자를 각 1자 이상 포함(`isValidPassword`).
+- 동일 휴대폰 번호로 5회 연속 로그인 실패 시 15분간 로그인을 잠근다(`loginAttempts`, 인메모리). 로그인 성공 시 실패 카운트는 초기화된다.
+- 세션 토큰(`generateSessionToken`)은 `node:crypto`의 `randomBytes`로 생성하는 예측 불가능한 오파크 토큰이다(과거 `Math.random()` 기반 생성은 예측 가능성 문제로 대체됨).
+- 토큰은 클라이언트 localStorage(`luggy_token`, `luggy_user`)에 저장, API 호출 시 `Authorization: Bearer <token>` 헤더로 전달. 동일 브라우저(기기)는 토큰이 남아있는 한 재방문 시 비밀번호 재입력 없이 자동 로그인된다.
 - CORS 사전 요청(OPTIONS)에 `Authorization` 헤더를 명시적으로 허용해야 브라우저에서 인증 API 호출이 차단되지 않는다(로컬 검증 중 발견/수정됨).
 
 ### 16.4 테스트 시나리오 (신규 기능)
@@ -219,12 +224,16 @@
 1. 휴대폰 번호 정규화(`normalizePhone`)/유효성 검증(`isValidPhone`)
 2. 닉네임 유효성 검증(`isValidNickname`)
 3. 세션 토큰 생성 규칙(`generateSessionToken`) — 유일성/포맷 검증
+4. 비밀번호 유효성 검증(`isValidPassword`) — 길이/영문·숫자 포함 여부
+5. 비밀번호 해시/검증(`hashPassword`/`verifyPassword`) — 올바른 비밀번호 검증 성공, 틀린 비밀번호 검증 실패, 동일 비밀번호도 매 호출마다 다른 솔트/해시 생성 확인
 
 #### 통합 테스트
-1. 가입 -> 로그인 -> `/auth/me` 조회 정합성
-2. 찜하기 추가 -> 목록 조회 -> 삭제 흐름
-3. 리뷰: 미완료 문의 건 리뷰 차단(400), 완료 후 리뷰 성공, 중복 리뷰 차단(409), 캐리어 평점/리뷰수 재계산 검증
-4. 소유자 스코핑: 로그인한 Owner가 등록한 캐리어만 `/providers/me/carriers`에 노출, 해당 캐리어에 대한 문의만 `/contact-requests`에 노출
+1. 가입(비밀번호 포함) -> 로그인(휴대폰 번호+비밀번호) -> `/auth/me` 조회 정합성, 응답에 `passwordHash` 미포함 검증
+2. 휴대폰 번호는 맞지만 비밀번호가 틀리면 401, 미가입 번호는 404
+3. 비밀번호 형식(길이/영문·숫자 포함) 미충족 시 가입 400
+4. 찜하기 추가 -> 목록 조회 -> 삭제 흐름
+5. 리뷰: 미완료 문의 건 리뷰 차단(400), 완료 후 리뷰 성공, 중복 리뷰 차단(409), 캐리어 평점/리뷰수 재계산 검증
+6. 소유자 스코핑: 로그인한 Owner가 등록한 캐리어만 `/providers/me/carriers`에 노출, 해당 캐리어에 대한 문의만 `/contact-requests`에 노출
 
 #### E2E 테스트
 1. 로그인 모달 오픈 -> 가입 제출 -> 헤더 프로필 칩(닉네임) 노출 확인
@@ -272,7 +281,7 @@
 ### 18.1 `User` 타입 확장
 ```
 type User = {
-  id, nickname, phone, createdAt,
+  id, nickname, phone, passwordHash /* 응답에서 제거됨 */, createdAt,
   district: string,
   ownsCarrier: boolean,
   carrierModel?: string,
@@ -322,7 +331,8 @@ type User = {
 ### 19.1 `User` 타입 확장
 ```
 type User = {
-  id, name /* 실명, 비공개 */, nickname /* 공개 유저네임 */, phone, createdAt,
+  id, name /* 실명, 비공개 */, nickname /* 공개 유저네임 */, phone,
+  passwordHash /* 솔트 적용 해시, 응답에서 제거됨 */, createdAt,
   district, ownsCarrier, ...
 }
 ```
@@ -450,3 +460,47 @@ export function rankQuickRentalCandidates(candidates, context, limit = 3)
 #### E2E 테스트 (수동/브라우저 캔버스로 검증)
 1. 홈 화면에서 "⚡ 빠른 대여로 추천받기" 클릭 → 대여 탭의 빠른 대여 하위 탭으로 이동하는지 확인
 2. 조건 입력 후 "추천 3개 받기" 클릭 시 추천 카드가 렌더링되고, 카드의 "1:1 대여 문의하기" 클릭 시 기존 문의 모달이 정상적으로 열리는지 확인
+
+## 22. 로그인 취약점 대응: 비밀번호 기반 계정 인증 강화 (보안 수정)
+전화번호만 알면 타인 계정으로 로그인할 수 있었던 §16.3의 경량 인증 방식을 보완한 내용이다. `apps/api/src/domain/auth.ts`, `apps/api/src/server.ts`, `apps/web/index.html`에 구현되어 있다. §16(로그인/찜하기/후기)의 계정/데이터 규칙은 본 절의 내용으로 대체된다.
+
+### 22.1 문제
+- 기존 `POST /auth/login`은 `{ phone }`만 검증해 세션 토큰을 발급했다. 공격자가 피해자의 휴대폰 번호(가입 시 공개되는 정보가 아니어도, 지인 관계·유출 등으로 알아낼 수 있는 식별자)만 알면 그 계정으로 완전히 로그인할 수 있었다(계정 탈취).
+
+### 22.2 데이터 모델 변경 (`apps/api/src/server.ts`)
+- `User`에 `passwordHash: string` 필드 추가. 평문 비밀번호는 저장하지 않는다.
+- 서버는 모든 API 응답에서 `toPublicUser(user)`를 통해 `passwordHash`를 제거한 뒤에만 `user` 객체를 반환한다(`/auth/signup`, `/auth/login`, `/auth/me`).
+- `loginAttempts: Map<phone, { count, lockedUntil? }>` 추가 — 동일 번호로 5회 연속 로그인 실패 시 15분간 해당 번호의 로그인을 차단(429)한다. 로그인 성공 시 카운터를 초기화한다.
+
+### 22.3 신규 도메인 함수 (`apps/api/src/domain/auth.ts`)
+```ts
+export function isValidPassword(password: string): boolean; // 8~64자, 영문+숫자 각 1자 이상
+export function hashPassword(password: string): string;      // scrypt + 랜덤 솔트 -> "saltHex:hashHex"
+export function verifyPassword(password: string, storedHash: string): boolean; // timingSafeEqual 비교
+```
+- `generateSessionToken()`은 `Math.random()` 대신 `crypto.randomBytes(24)`로 예측 불가능한 토큰을 생성하도록 변경되었다(기존 방식은 토큰 추측 가능성이 있었음).
+
+### 22.4 API 변경
+1. `POST /auth/signup` — 요청 바디에 `password` 필수 추가. `isValidPassword` 실패 시 400: "비밀번호는 영문+숫자를 포함해 8자 이상으로 입력해주세요." 통과 시 `hashPassword(password)` 결과만 저장한다.
+2. `POST /auth/login` — 요청 바디가 `{ phone, password }`로 변경. 처리 순서: (1) 전화번호 형식 검증(400) → (2) 잠금 상태 확인(429) → (3) 가입 여부 확인(404) → (4) `verifyPassword`로 비밀번호 확인, 실패 시 `recordLoginFailure`로 실패 카운트 증가 후 401 → (5) 성공 시 `clearLoginFailures` 후 토큰 발급.
+
+### 22.5 자동 로그인(동일 기기) 정책
+- 로그인/가입 성공 시 발급된 토큰은 클라이언트 localStorage(`luggy_token`, `luggy_user`)에 저장되며, 같은 브라우저에서는 토큰이 유효한 한(로그아웃하지 않는 한) 재방문 시 비밀번호를 다시 입력하지 않아도 로그인 상태가 유지된다. 이는 기존 §16.3 동작을 그대로 유지하며, 비밀번호는 오직 "새로운 로그인"(다른 기기/브라우저 또는 로그아웃 후 재로그인) 시에만 요구된다.
+
+### 22.6 프런트엔드 변경 (`apps/web/index.html`)
+- 로그인 폼(`#login-step-login`)에 `#l-password-login` 비밀번호 입력 필드 추가.
+- 회원가입 1단계(`#signup-step-1`)에 `#s-password` 비밀번호 입력 필드 추가, 안내 문구를 "전화번호만으로는 로그인할 수 없도록, 본인만 아는 비밀번호를 함께 설정합니다."로 제공.
+- `signupWizardNext()` 1단계 검증에 비밀번호 필수/형식(정규식 `/^(?=.*[A-Za-z])(?=.*\d).{8,64}$/`) 체크 추가.
+- `submitAuth()`가 `/auth/signup`, `/auth/login` 요청 바디에 각각 `password`를 포함해 전송하도록 변경.
+- 모달 안내 문구를 "휴대폰 번호만으로 간편하게 가입/로그인"에서 "휴대폰 번호와 비밀번호로 가입/로그인"으로 수정.
+
+### 22.7 테스트 시나리오
+#### 단위 테스트 (`apps/api/tests/unit.auth.test.ts`)
+1. `isValidPassword`: 8자 이상 + 영문/숫자 혼합 시 통과, 길이 미달·영문 또는 숫자 누락 시 거부
+2. `hashPassword`/`verifyPassword`: 올바른 비밀번호 검증 성공, 틀린 비밀번호 검증 실패, 동일 비밀번호도 매 호출마다 다른 해시(솔트) 생성 확인
+
+#### 통합 테스트 (`apps/api/tests/integration.c2c-platform.test.ts`)
+1. 비밀번호 포함 가입 -> 올바른 `{ phone, password }`로 로그인 성공(200), 응답에 `passwordHash` 미포함 확인
+2. 올바른 전화번호 + 틀린 비밀번호로 로그인 시 401
+3. 미가입 전화번호로 로그인 시도 시 404(기존 동작 유지)
+4. 비밀번호가 8자 미만이거나 숫자/영문 중 하나가 없는 경우 가입 400

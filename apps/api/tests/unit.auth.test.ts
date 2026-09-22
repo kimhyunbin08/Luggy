@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateSessionToken, isValidCarrierPurchaseYear, isValidName, isValidNickname, isValidPhone, isValidTravelDaysPerYear, normalizePhone } from '../src/domain/auth.js';
+import { generateSessionToken, hashPassword, isValidCarrierPurchaseYear, isValidName, isValidNickname, isValidPassword, isValidPhone, isValidTravelDaysPerYear, normalizePhone, verifyPassword } from '../src/domain/auth.js';
 
 describe('auth: normalizePhone', () => {
   it('formats an 11-digit phone number into 010-XXXX-XXXX', () => {
@@ -85,5 +85,38 @@ describe('auth: generateSessionToken', () => {
     const b = generateSessionToken();
     expect(a).not.toBe(b);
     expect(a.length).toBeGreaterThan(10);
+  });
+});
+
+describe('auth: isValidPassword', () => {
+  it('accepts passwords with at least 8 characters, a letter, and a digit', () => {
+    expect(isValidPassword('Passw0rd1')).toBe(true);
+    expect(isValidPassword('abcdefg1')).toBe(true);
+  });
+
+  it('rejects passwords that are too short or missing a letter/digit', () => {
+    expect(isValidPassword('ab1')).toBe(false);
+    expect(isValidPassword('onlyletters')).toBe(false);
+    expect(isValidPassword('12345678')).toBe(false);
+  });
+});
+
+describe('auth: hashPassword / verifyPassword', () => {
+  it('verifies the correct password against its hash', () => {
+    const hash = hashPassword('Passw0rd1');
+    expect(verifyPassword('Passw0rd1', hash)).toBe(true);
+  });
+
+  it('rejects an incorrect password against the hash', () => {
+    const hash = hashPassword('Passw0rd1');
+    expect(verifyPassword('WrongPass1', hash)).toBe(false);
+  });
+
+  it('produces different hashes (different salts) for the same password', () => {
+    const a = hashPassword('Passw0rd1');
+    const b = hashPassword('Passw0rd1');
+    expect(a).not.toBe(b);
+    expect(verifyPassword('Passw0rd1', a)).toBe(true);
+    expect(verifyPassword('Passw0rd1', b)).toBe(true);
   });
 });
