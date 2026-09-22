@@ -58,35 +58,35 @@ docker-compose exec api npm run db:init
 
 ---
 
-## Azure 배포 (다음 주)
+## Azure 배포 (운영 중)
 
-### 사전 요구사항
+### 실제 인프라 (rg-staging / rg-production)
 
-```bash
-# Azure CLI 설치
-brew install azure-cli
+| 리소스 | Staging | Production |
+| --- | --- | --- |
+| Resource Group | `rg-staging` | `rg-production` |
+| API Container App | `ca-api-5kodng4nv464w` | `ca-api-du6ob5u24hia6` |
+| Web Container App | `ca-web-5kodng4nv464w` | `ca-web-du6ob5u24hia6` |
+| Container Registry | `acrdu6ob5u24hia6.azurecr.io` (공용) | 동일 |
 
-# Azure 로그인
-az login
+Container App은 사용자 할당 관리 ID(`id-du6ob5u24hia6`)로 ACR에서 이미지를 pull하므로
+레지스트리 계정/비밀번호가 필요 없습니다.
 
-# 리소스 그룹 생성
-az group create --name luggy-rg --location koreacentral
-
-# Container Registry 생성
-az acr create --resource-group luggy-rg --name luggyacr --sku Basic
-```
+**중요:** Web 이미지는 빌드 시점에 `VITE_API_URL` build-arg로 API의 https FQDN을 주입해야
+합니다. 이 값을 비우거나 `http://localhost:3001`로 두면 배포된 https 페이지에서
+mixed-content로 차단되어 모든 API 호출이 실패합니다 (`apps/web/index.html`의
+`getApiBase()` 참고).
 
 ### GitHub Actions 시크릿 설정
 
 `.github/workflows/deploy.yml` 실행을 위해 GitHub 저장소 Settings → Secrets에 추가:
 
 ```
-AZURE_CREDENTIALS: <Azure Service Principal JSON>
-STAGING_DATABASE_URL: postgresql://user:pass@host:5432/luggy-staging
-PROD_DATABASE_URL: postgresql://user:pass@host:5432/luggy-prod
-REGISTRY_USERNAME: <Container Registry username>
-REGISTRY_PASSWORD: <Container Registry password>
+AZURE_CREDENTIALS: <Azure Service Principal JSON, rg-staging/rg-production에 대한 Contributor 권한 필요>
 ```
+
+워크플로가 실행 중 `az containerapp show`로 API/Web FQDN을 조회해 자동으로
+`VITE_API_URL`을 채우므로 별도 시크릿은 필요 없습니다.
 
 ### 배포 트리거
 
@@ -98,6 +98,22 @@ git push origin docs/specs-azure-mvp
 git push origin main
 ```
 
+각 배포는 `az acr build`로 API/Web 이미지를 빌드해 ACR에 push한 뒤,
+`az containerapp update`로 각 Container App의 이미지를 최신 커밋 SHA 태그로 갱신합니다.
+
+### 수동 재배포 (긴급 hotfix)
+
+```bash
+# Web만 다시 빌드/배포 (API URL을 명시적으로 지정)
+az acr build --registry acrdu6ob5u24hia6 \
+  --image luggy/web-production:hotfix-$(date +%s) \
+  --file apps/web/Dockerfile \
+  --build-arg VITE_API_URL=https://ca-api-du6ob5u24hia6.politeriver-eecb7bef.koreacentral.azurecontainerapps.io \
+  .
+
+az containerapp update -n ca-web-du6ob5u24hia6 -g rg-production \
+  --image acrdu6ob5u24hia6.azurecr.io/luggy/web-production:hotfix-<TAG>
+```
 ---
 
 ## API 엔드포인트 (MVP 핵심)
