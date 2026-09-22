@@ -1257,9 +1257,13 @@
     <!-- Kakao Map API key bridge: import.meta.env is only valid inside an ES
          module, so we read the Vite-injected env var here (module scope) and
          expose it on window for the classic, globally-scoped script below,
-         which inline onclick="..." handlers throughout this page rely on. -->
+         which inline onclick="..." handlers throughout this page rely on.
+         The API base URL is bridged the same way so a production build
+         (VITE_API_URL) never falls back to a hardcoded http://localhost
+         value, which browsers block as mixed content on an https page. -->
     <script type="module">
       window.KAKAO_APP_KEY = window.KAKAO_APP_KEY || (import.meta.env && import.meta.env.VITE_KAKAO_MAP_KEY) || '';
+      window.API_BASE = window.API_BASE || (import.meta.env && import.meta.env.VITE_API_URL) || 'http://localhost:3001';
     </script>
 
     <!-- Leaflet JS for Map (Default Zero-Config Fallback) -->
@@ -1267,7 +1271,7 @@
 
     <!-- Global Map & Platform Application Logic -->
     <script>
-      const API_BASE = 'http://localhost:3001';
+      function getApiBase() { return window.API_BASE || 'http://localhost:3001'; }
       let map = null;
       let markers = [];
       let currentCarriers = [];
@@ -1560,7 +1564,7 @@
         }
 
         try {
-          const res = await fetch(`${API_BASE}${endpoint}`, {
+          const res = await fetch(`${getApiBase()}${endpoint}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
@@ -1601,7 +1605,7 @@
       async function fetchFavoriteIds() {
         if (!authToken) { favoriteIds = new Set(); return; }
         try {
-          const res = await fetch(`${API_BASE}/favorites`, { headers: authHeaders() });
+          const res = await fetch(`${getApiBase()}/favorites`, { headers: authHeaders() });
           const data = await res.json();
           favoriteIds = new Set((data.items || []).map(c => c.id));
         } catch (err) {
@@ -1617,10 +1621,10 @@
         const isFavorited = favoriteIds.has(carrierId);
         try {
           if (isFavorited) {
-            await fetch(`${API_BASE}/favorites/${carrierId}`, { method: 'DELETE', headers: authHeaders() });
+            await fetch(`${getApiBase()}/favorites/${carrierId}`, { method: 'DELETE', headers: authHeaders() });
             favoriteIds.delete(carrierId);
           } else {
-            await fetch(`${API_BASE}/favorites`, {
+            await fetch(`${getApiBase()}/favorites`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', ...authHeaders() },
               body: JSON.stringify({ carrierId })
@@ -1644,7 +1648,7 @@
           return;
         }
         try {
-          const res = await fetch(`${API_BASE}/favorites`, { headers: authHeaders() });
+          const res = await fetch(`${getApiBase()}/favorites`, { headers: authHeaders() });
           const data = await res.json();
           const items = data.items || [];
           favoriteIds = new Set(items.map(c => c.id));
@@ -1666,7 +1670,7 @@
         const logLine = `[${timestamp}] EVENT: ${eventName} ${JSON.stringify(payload)}\n`;
         box.innerText = logLine + box.innerText;
 
-        fetch(`${API_BASE}/funnel/events`, {
+        fetch(`${getApiBase()}/funnel/events`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ event: eventName, payload })
@@ -1717,7 +1721,7 @@
 
       async function renderHomeDashboard() {
         try {
-          const res = await fetch(`${API_BASE}/renters/search`);
+          const res = await fetch(`${getApiBase()}/renters/search`);
           const data = await res.json();
           const items = (data.items || []).slice(0, 4);
           document.getElementById('home-stat-carriers').innerText = data.items ? data.items.length : '-';
@@ -1735,9 +1739,9 @@
 
         try {
           const [reqRes, favRes, carRes] = await Promise.all([
-            fetch(`${API_BASE}/contact-requests`, { headers: authHeaders() }),
-            fetch(`${API_BASE}/favorites`, { headers: authHeaders() }),
-            fetch(`${API_BASE}/providers/me/carriers`, { headers: authHeaders() })
+            fetch(`${getApiBase()}/contact-requests`, { headers: authHeaders() }),
+            fetch(`${getApiBase()}/favorites`, { headers: authHeaders() }),
+            fetch(`${getApiBase()}/providers/me/carriers`, { headers: authHeaders() })
           ]);
           const reqData = await reqRes.json();
           const favData = await favRes.json();
@@ -1840,7 +1844,7 @@
           if (startDate) params.append('startDate', startDate);
           if (endDate) params.append('endDate', endDate);
 
-          const res = await fetch(`${API_BASE}/renters/search?${params.toString()}`);
+          const res = await fetch(`${getApiBase()}/renters/search?${params.toString()}`);
           const data = await res.json();
 
           currentCarriers = data.items || [];
@@ -1993,7 +1997,7 @@
         grid.innerHTML = '';
 
         try {
-          const res = await fetch(`${API_BASE}/renters/quick-rental`, {
+          const res = await fetch(`${getApiBase()}/renters/quick-rental`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...authHeaders() },
             body: JSON.stringify({ purpose, size, durationDays, district: district || undefined, headcount })
@@ -2142,7 +2146,7 @@
         }
 
         try {
-          const res = await fetch(`${API_BASE}/contact-requests`, {
+          const res = await fetch(`${getApiBase()}/contact-requests`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...authHeaders() },
             body: JSON.stringify({
@@ -2199,7 +2203,7 @@
           return;
         }
         try {
-          const res = await fetch(`${API_BASE}/contact-requests`, { headers: authHeaders() });
+          const res = await fetch(`${getApiBase()}/contact-requests`, { headers: authHeaders() });
           const data = await res.json();
           chatRequests = (data.requests || []).slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
@@ -2242,7 +2246,7 @@
       async function renderChatPanel(id) {
         const panel = document.getElementById('chat-panel');
         try {
-          const res = await fetch(`${API_BASE}/contact-requests/${id}`, { headers: authHeaders() });
+          const res = await fetch(`${getApiBase()}/contact-requests/${id}`, { headers: authHeaders() });
           const data = await res.json();
           if (!res.ok) {
             panel.innerHTML = `<div class="chat-empty-state">${data.message || '채팅을 불러올 수 없습니다.'}</div>`;
@@ -2299,7 +2303,7 @@
         if (!text) return;
         input.value = '';
         try {
-          const res = await fetch(`${API_BASE}/contact-requests/${id}/messages`, {
+          const res = await fetch(`${getApiBase()}/contact-requests/${id}/messages`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...authHeaders() },
             body: JSON.stringify({ text })
@@ -2328,7 +2332,7 @@
         const comment = window.prompt('한줄 후기를 남겨주세요.', '친절하고 깨끗했어요!') || '';
 
         try {
-          const res = await fetch(`${API_BASE}/carriers/${carrierId}/reviews`, {
+          const res = await fetch(`${getApiBase()}/carriers/${carrierId}/reviews`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...authHeaders() },
             body: JSON.stringify({ contactRequestId, rating, comment, reviewerName: currentUser?.nickname })
@@ -2347,7 +2351,7 @@
 
       async function updateRequestStatus(id, newStatus) {
         try {
-          await fetch(`${API_BASE}/contact-requests/${id}/status`, {
+          await fetch(`${getApiBase()}/contact-requests/${id}/status`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...authHeaders() },
             body: JSON.stringify({ status: newStatus })
@@ -2381,7 +2385,7 @@
         }
 
         try {
-          const res = await fetch(`${API_BASE}/providers/carriers`, {
+          const res = await fetch(`${getApiBase()}/providers/carriers`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...authHeaders() },
             body: JSON.stringify({
@@ -2417,7 +2421,7 @@
           return;
         }
         try {
-          const res = await fetch(`${API_BASE}/providers/me/carriers`, { headers: authHeaders() });
+          const res = await fetch(`${getApiBase()}/providers/me/carriers`, { headers: authHeaders() });
           const data = await res.json();
           const items = data.items || [];
           if (items.length === 0) {
